@@ -217,10 +217,28 @@
     vertical-align: -2px;
   }
   @keyframes spin{ to{ transform: rotate(360deg);} }
+  .crossnav{
+    display:flex; gap:8px; margin-bottom:22px; flex-wrap:wrap;
+  }
+  .crossnav a{
+    font-size:12.5px; color: var(--text-dim); text-decoration:none;
+    border:1px solid var(--border); border-radius: 20px; padding: 6px 14px;
+    transition: color .12s, border-color .12s, background .12s;
+    font-family: var(--mono);
+  }
+  .crossnav a:hover{ color: var(--text); border-color: var(--amber); background: rgba(217,164,65,0.06); }
+  .crossnav a.active{
+    color: var(--bg); background: var(--amber); border-color: var(--amber); font-weight:600;
+  }
 </style>
 </head>
 <body>
 <div class="wrap">
+  <nav class="crossnav">
+    <a href="Reconciliacion_Fletes.html" class="active">⇢ Reconciliación de Fletes</a>
+    <a href="Registro_Facturas_SAT.html">⇢ Registro de Facturas SAT</a>
+  </nav>
+
 
   <header class="top">
     <div class="brand">
