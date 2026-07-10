@@ -1,0 +1,778 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Registro de Facturas SAT — Sol Firma</title>
+<script>
+  function loadScriptFallback(urls) {
+    return new Promise((resolve, reject) => {
+      let i = 0;
+      function tryNext() {
+        if (i >= urls.length) { reject(new Error('No se pudo cargar ninguna fuente: ' + urls.join(', '))); return; }
+        const url = urls[i++];
+        const s = document.createElement('script');
+        s.src = url;
+        s.onload = () => resolve(url);
+        s.onerror = () => tryNext();
+        document.head.appendChild(s);
+      }
+      tryNext();
+    });
+  }
+  window.LIBS_READY = Promise.all([
+    loadScriptFallback([
+      'https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js',
+      'https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js',
+      'https://unpkg.com/xlsx@0.18.5/dist/xlsx.full.min.js',
+      'https://cdn.sheetjs.com/xlsx-0.20.3/package/dist/xlsx.full.min.js'
+    ]),
+    loadScriptFallback([
+      'https://cdn.jsdelivr.net/npm/xlsx-populate@1.21.0/browser/xlsx-populate.min.js',
+      'https://unpkg.com/xlsx-populate@1.21.0/browser/xlsx-populate.min.js',
+      'https://cdnjs.cloudflare.com/ajax/libs/xlsx-populate/1.21.0/xlsx-populate.min.js'
+    ])
+  ]).then(() => {
+    window.LIBS_OK = true;
+    return true;
+  }).catch((e) => {
+    console.error('Error cargando librerías:', e);
+    window.LIBS_OK = false;
+    return false;
+  });
+</script>
+<style>
+  :root{
+    --bg: #0c1522;
+    --bg-alt: #0f1c2d;
+    --card: #142338;
+    --card-2: #182a44;
+    --border: #24374f;
+    --border-soft: #1c2e46;
+    --text: #e7edf5;
+    --text-dim: #93a5bd;
+    --text-faint: #5f7089;
+    --amber: #d9a441;
+    --amber-soft: #f0c877;
+    --green: #4caf7d;
+    --red: #d9705f;
+    --mono: "SF Mono", "Cascadia Code", Consolas, monospace;
+  }
+  *{box-sizing:border-box;}
+  html,body{margin:0;padding:0;}
+  body{
+    background: radial-gradient(circle at 15% 0%, #122032 0%, var(--bg) 45%) fixed;
+    color: var(--text);
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+    line-height: 1.5;
+    min-height: 100vh;
+  }
+  .wrap{max-width: 1180px; margin: 0 auto; padding: 40px 24px 90px;}
+  header.top{
+    display:flex; align-items:baseline; justify-content:space-between; gap:16px;
+    border-bottom: 1px solid var(--border); padding-bottom: 22px; margin-bottom: 34px;
+    flex-wrap: wrap;
+  }
+  header.top .brand{display:flex; align-items:baseline; gap:14px;}
+  header.top .brand .mark{
+    font-family: var(--mono); color: var(--amber); font-size: 13px; letter-spacing: .12em;
+    border: 1px solid var(--amber); padding: 3px 8px; border-radius: 3px;
+  }
+  header.top h1{font-size: 21px; font-weight: 600; margin:0; letter-spacing: -0.01em;}
+  header.top p{color: var(--text-dim); margin: 4px 0 0; font-size: 13.5px;}
+
+  .step{
+    background: var(--card);
+    border: 1px solid var(--border);
+    border-radius: 10px;
+    margin-bottom: 22px;
+    overflow: hidden;
+  }
+  .step.disabled{opacity:.42; pointer-events:none;}
+  .step-head{
+    display:flex; align-items:center; gap: 14px;
+    padding: 18px 22px;
+    border-bottom: 1px solid var(--border-soft);
+    background: linear-gradient(180deg, var(--card-2), var(--card));
+  }
+  .step-num{
+    font-family: var(--mono); font-size: 12px; color: var(--bg);
+    background: var(--amber); width: 24px; height: 24px; border-radius: 50%;
+    display:flex; align-items:center; justify-content:center; flex-shrink:0; font-weight:700;
+  }
+  .step-head h2{font-size: 15.5px; margin:0; font-weight: 600;}
+  .step-head .sub{color: var(--text-dim); font-size: 12.5px; margin-top: 2px;}
+  .step-body{padding: 22px;}
+
+  .dropzone{
+    border: 1.5px dashed var(--border);
+    border-radius: 8px;
+    padding: 34px 20px;
+    text-align: center;
+    cursor: pointer;
+    transition: border-color .15s, background .15s;
+    background: var(--bg-alt);
+  }
+  .dropzone:hover, .dropzone.drag{ border-color: var(--amber); background: #14243a; }
+  .dropzone input{display:none;}
+  .dropzone .icon{font-size: 26px; margin-bottom: 8px; color: var(--amber);}
+  .dropzone .label{font-size: 14px; color: var(--text);}
+  .dropzone .hint{font-size: 12px; color: var(--text-faint); margin-top: 4px;}
+  .filename{margin-top: 12px; font-family: var(--mono); font-size: 12.5px; color: var(--amber-soft);}
+
+  .summary-grid{
+    display:grid; grid-template-columns: repeat(auto-fit, minmax(150px,1fr)); gap: 14px;
+    margin-bottom: 20px;
+  }
+  .metric{
+    background: var(--bg-alt); border: 1px solid var(--border-soft); border-radius: 8px; padding: 14px 16px;
+  }
+  .metric .n{font-family: var(--mono); font-size: 20px; font-weight: 700; color: var(--amber-soft);}
+  .metric .l{font-size: 11.5px; color: var(--text-dim); margin-top: 3px; text-transform: uppercase; letter-spacing: .04em;}
+
+  .toolbar{display:flex; gap:10px; flex-wrap:wrap; align-items:center; margin-bottom: 14px;}
+  .toolbar input[type=text]{
+    background: var(--bg-alt); border: 1px solid var(--border); color: var(--text);
+    padding: 8px 12px; border-radius: 6px; font-size: 13px; min-width: 200px;
+  }
+  .toolbar input[type=text]:focus{outline:none; border-color: var(--amber);}
+  .btn{
+    background: var(--amber); color: #1a1305; border:none; font-weight:600;
+    padding: 9px 16px; border-radius: 6px; font-size: 13px; cursor:pointer;
+    transition: filter .12s, transform .12s;
+  }
+  .btn:hover{filter: brightness(1.08);}
+  .btn:active{transform: translateY(1px);}
+  .btn.ghost{ background: transparent; color: var(--text-dim); border: 1px solid var(--border); }
+  .btn.ghost:hover{ color: var(--text); border-color: var(--amber);}
+  .btn:disabled{opacity:.4; cursor:not-allowed; filter:none;}
+  .btn.big{padding: 13px 26px; font-size: 14.5px;}
+  .btn.small{padding: 5px 10px; font-size: 11.5px;}
+
+  table.rfclist{width:100%; border-collapse: collapse; font-size: 12.8px;}
+  table.rfclist th{
+    text-align:left; color: var(--text-dim); font-weight:600; font-size: 11px;
+    text-transform: uppercase; letter-spacing:.04em; padding: 8px 10px; border-bottom: 1px solid var(--border);
+    position: sticky; top:0; background: var(--card);
+  }
+  table.rfclist td{padding: 9px 10px; border-bottom: 1px solid var(--border-soft); vertical-align: middle;}
+  table.rfclist tr:hover td{background: rgba(217,164,65,0.04);}
+  .rfc{font-family: var(--mono); color: var(--text-dim); font-size: 12px;}
+  .amt{font-family: var(--mono); text-align:right; display:block;}
+  .badge{ font-size: 10.5px; padding: 3px 7px; border-radius: 20px; font-weight: 600; letter-spacing:.02em; display:inline-block; }
+  .badge.ok{background: rgba(76,175,125,0.14); color: var(--green); border:1px solid rgba(76,175,125,0.35);}
+  .badge.warn{background: rgba(217,112,95,0.14); color: var(--red); border:1px solid rgba(217,112,95,0.35);}
+  .table-scroll{max-height: 420px; overflow-y:auto; border: 1px solid var(--border-soft); border-radius: 8px;}
+
+  .add-rfc-row{display:flex; gap:8px; margin-top:12px;}
+  .add-rfc-row input{
+    background: var(--bg-alt); border:1px solid var(--border); color:var(--text); padding:8px 12px;
+    border-radius:6px; font-size:13px; font-family: var(--mono); flex:1;
+  }
+
+  .footer-actions{display:flex; justify-content:space-between; align-items:center; flex-wrap:wrap; gap:14px;}
+  .status-line{font-size: 12.5px; color: var(--text-dim);}
+  .status-line.error{color: var(--red);}
+  .status-line.ok{color: var(--green);}
+
+  ::-webkit-scrollbar{width:9px; height:9px;}
+  ::-webkit-scrollbar-track{background: var(--bg-alt);}
+  ::-webkit-scrollbar-thumb{background: var(--border); border-radius:5px;}
+  ::-webkit-scrollbar-thumb:hover{background: var(--text-faint);}
+
+  .spinner{
+    width:14px; height:14px; border-radius:50%; border: 2px solid rgba(255,255,255,.25);
+    border-top-color: #1a1305; display:inline-block; animation: spin .7s linear infinite; margin-right:7px;
+    vertical-align: -2px;
+  }
+  @keyframes spin{ to{ transform: rotate(360deg);} }
+</style>
+</head>
+<body>
+<div class="wrap">
+
+  <header class="top">
+    <div class="brand">
+      <span class="mark">SFN</span>
+      <div>
+        <h1>Registro de Facturas SAT</h1>
+        <p>Sol Firma de Negocios · Seguimiento por RFC de transportistas</p>
+      </div>
+    </div>
+    <div class="sub" style="color:var(--text-faint); font-size:12px; max-width:280px; text-align:right;">
+      Todo se procesa en tu navegador. Nada se sube a ningún servidor.
+    </div>
+  </header>
+
+  <div id="libBanner" class="status-line" style="margin-bottom:18px; display:none;"></div>
+
+  <!-- PASO 1 -->
+  <div class="step" id="step1">
+    <div class="step-head">
+      <div class="step-num">1</div>
+      <div>
+        <h2>Cargar comprobantes</h2>
+        <div class="sub">Sube el XLSX de comprobantes (tipo SFN990310U62_Comprobantes_...), de cualquier mes</div>
+      </div>
+    </div>
+    <div class="step-body">
+      <label class="dropzone" id="dropzone">
+        <input type="file" id="fileInput" accept=".xlsx">
+        <div class="icon">⇪</div>
+        <div class="label">Arrastra el archivo aquí o haz clic para elegirlo</div>
+        <div class="hint">.xlsx — incluye vigentes y canceladas, se marcan por separado</div>
+      </label>
+      <div class="filename" id="filename"></div>
+      <div class="status-line" id="parseStatus" style="margin-top:10px;"></div>
+    </div>
+  </div>
+
+  <!-- PASO 2 -->
+  <div class="step disabled" id="step2">
+    <div class="step-head">
+      <div class="step-num">2</div>
+      <div>
+        <h2>RFC a incluir</h2>
+        <div class="sub">Se guardan en este navegador — no hace falta volver a escribirlos cada mes</div>
+      </div>
+    </div>
+    <div class="step-body">
+      <div class="summary-grid" id="summaryGrid"></div>
+
+      <div class="toolbar">
+        <button class="btn ghost small" id="btnSelectAll">Marcar todos</button>
+        <button class="btn ghost small" id="btnSelectNone">Desmarcar todo</button>
+        <span style="flex:1"></span>
+        <span class="status-line" id="selectionCount"></span>
+      </div>
+
+      <div class="table-scroll">
+        <table class="rfclist">
+          <thead>
+            <tr>
+              <th style="width:30px;"></th>
+              <th>RFC</th>
+              <th>Nombre (visto en el archivo)</th>
+              <th style="text-align:right;">Vigentes</th>
+              <th style="text-align:right;">Canceladas</th>
+              <th style="text-align:right;">Subtotal</th>
+              <th></th>
+            </tr>
+          </thead>
+          <tbody id="rfcBody"></tbody>
+        </table>
+      </div>
+
+      <div class="add-rfc-row">
+        <input type="text" id="newRfcInput" placeholder="Agregar otro RFC a la lista guardada (ej. AASV600828T93)">
+        <button class="btn ghost small" id="btnAddRfc" type="button">Agregar a la lista</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- PASO 3 -->
+  <div class="step disabled" id="step3">
+    <div class="step-head">
+      <div class="step-num">3</div>
+      <div>
+        <h2>Generar archivo</h2>
+        <div class="sub">Una hoja "Facturas" con clasificación mes/semana + hoja de referencia con los RFC usados</div>
+      </div>
+    </div>
+    <div class="step-body">
+      <div class="footer-actions">
+        <button class="btn big" id="btnGenerate">Generar archivo Excel</button>
+        <span class="status-line" id="generateStatus"></span>
+      </div>
+    </div>
+  </div>
+
+</div>
+
+
+<script>
+  const DEFAULT_RFCS = ["AASV600828T93", "AGR940215K92", "BACC780724TE8", "CAUM740323T48", "LOMM780317555", "MAGG900324ES1", "PCA161006270", "RAEJ7903139L0", "RARL840312QK7", "RIVS6508091M5", "SEP900521HK4", "SOAJ940412PK9", "SOML7901219C7", "TORJ981130FA4", "TVI200326CF9", "SANA690507HI1", "CUAA720330369", "RARR810904SM0"];
+</script>
+
+<script>
+/* =========================================================================
+   Registro de Facturas SAT por RFC — Sol Firma de Negocios
+   ========================================================================= */
+(function () {
+  'use strict';
+
+  const LS_KEYS = {
+    rfcList: 'sfn_sat_rfclist_v1'
+  };
+
+  function normalizeRfc(s) { return String(s || '').trim().toUpperCase(); }
+
+  function loadRfcList() {
+    try {
+      const stored = JSON.parse(localStorage.getItem(LS_KEYS.rfcList) || 'null');
+      if (stored && Array.isArray(stored) && stored.length) return stored;
+    } catch (e) { /* ignore */ }
+    return DEFAULT_RFCS.slice();
+  }
+  function saveRfcList(list) { localStorage.setItem(LS_KEYS.rfcList, JSON.stringify(list)); }
+
+  /* ---------------- clasificación mes/semana ---------------- */
+  function rawWeeks(year, month) {
+    const lastDay = new Date(Date.UTC(year, month, 0)).getUTCDate();
+    const weeks = [];
+    let cur = 1;
+    while (cur <= lastDay) {
+      const curDate = new Date(Date.UTC(year, month - 1, cur));
+      const dow = curDate.getUTCDay();
+      const daysUntilSat = (6 - dow + 7) % 7;
+      let end = cur + daysUntilSat;
+      if (end > lastDay) end = lastDay;
+      weeks.push([cur, end]);
+      cur = end + 1;
+    }
+    return weeks;
+  }
+
+  function classifyWeeks(year, month) {
+    let segs = rawWeeks(year, month).map(s => s.slice());
+    if (segs.length > 1) {
+      const [s, e] = segs[0];
+      if (e - s + 1 <= 4) { segs[1][0] = s; segs.shift(); }
+    }
+    if (segs.length > 1) {
+      const [s, e] = segs[segs.length - 1];
+      if (e - s + 1 <= 4) { segs[segs.length - 2][1] = e; segs.pop(); }
+    }
+    return segs;
+  }
+
+  const weekCache = new Map();
+  function getWeeksCached(year, month) {
+    const key = year + '-' + month;
+    if (!weekCache.has(key)) weekCache.set(key, classifyWeeks(year, month));
+    return weekCache.get(key);
+  }
+
+  const MONTH_LETTERS = ['A', 'B', 'C', 'D', 'E', 'F', 'G', 'H', 'I', 'J', 'K', 'L'];
+
+  function classify(date) {
+    const year = date.getUTCFullYear();
+    const month = date.getUTCMonth() + 1;
+    const day = date.getUTCDate();
+    const weeks = getWeeksCached(year, month);
+    let weekNum = weeks.length;
+    for (let i = 0; i < weeks.length; i++) {
+      if (day >= weeks[i][0] && day <= weeks[i][1]) { weekNum = i + 1; break; }
+    }
+    return MONTH_LETTERS[month - 1] + weekNum;
+  }
+
+  /* ---------------- parseo del archivo fuente ---------------- */
+  const REQUIRED_HEADERS = ['Estatus', 'UUID', 'Folio', 'Emisión', 'Emisor RFC', 'Emisor Nombre',
+    'SubTotal', 'IVA', 'IVA Retenido', 'ISR Retenido', 'Total', 'Conceptos Descripción'];
+
+  function findHeaderRow(sheetArr) {
+    for (let r = 0; r < Math.min(sheetArr.length, 30); r++) {
+      const row = sheetArr[r] || [];
+      const asStr = row.map(v => (v == null ? '' : String(v).trim()));
+      const hit = REQUIRED_HEADERS.every(h => asStr.includes(h));
+      if (hit) return r;
+    }
+    return -1;
+  }
+
+  function parseWorkbookToInvoices(workbook) {
+    let best = null;
+    for (const sheetName of workbook.SheetNames) {
+      const ws = workbook.Sheets[sheetName];
+      const arr = XLSX.utils.sheet_to_json(ws, { header: 1, raw: true, defval: null });
+      const headerRowIdx = findHeaderRow(arr);
+      if (headerRowIdx >= 0) { best = { arr, headerRowIdx }; break; }
+    }
+    if (!best) throw new Error('No se encontró un encabezado reconocible (Estatus, UUID, Emisor RFC, ...) en ninguna hoja del archivo.');
+
+    const { arr, headerRowIdx } = best;
+    const header = arr[headerRowIdx].map(v => (v == null ? '' : String(v).trim()));
+    const idx = {};
+    for (const h of REQUIRED_HEADERS) idx[h] = header.indexOf(h);
+
+    const invoices = [];
+    for (let r = headerRowIdx + 1; r < arr.length; r++) {
+      const row = arr[r];
+      if (!row) continue;
+      const estatus = row[idx['Estatus']];
+      if (!estatus) continue;
+      const fechaRaw = row[idx['Emisión']];
+      let fecha = null;
+      if (fechaRaw instanceof Date) fecha = fechaRaw;
+      else if (typeof fechaRaw === 'number') fecha = new Date(Math.round((fechaRaw - 25569) * 86400 * 1000));
+      else if (typeof fechaRaw === 'string' && fechaRaw) fecha = new Date(fechaRaw);
+      if (!fecha) continue;
+      invoices.push({
+        estatus: String(estatus).trim(),
+        uuid: row[idx['UUID']] || '',
+        folio: row[idx['Folio']],
+        fecha: fecha,
+        rfc: row[idx['Emisor RFC']] ? normalizeRfc(row[idx['Emisor RFC']]) : '',
+        nombre: row[idx['Emisor Nombre']] ? String(row[idx['Emisor Nombre']]).trim() : '',
+        subtotal: Number(row[idx['SubTotal']]) || 0,
+        iva: Number(row[idx['IVA']]) || 0,
+        ivaret: Number(row[idx['IVA Retenido']]) || 0,
+        isrret: Number(row[idx['ISR Retenido']]) || 0,
+        total: Number(row[idx['Total']]) || 0,
+        descripcion: row[idx['Conceptos Descripción']] ? String(row[idx['Conceptos Descripción']]) : ''
+      });
+    }
+    return invoices.filter(i => i.rfc);
+  }
+
+  /* ---------------- agrupar por RFC (para la vista de selección) ---------------- */
+  function buildRfcSummary(invoices) {
+    const map = new Map();
+    for (const inv of invoices) {
+      if (!map.has(inv.rfc)) {
+        map.set(inv.rfc, { rfc: inv.rfc, nombre: inv.nombre, count: 0, vigentes: 0, canceladas: 0, subtotal: 0 });
+      }
+      const g = map.get(inv.rfc);
+      g.count++;
+      if (inv.estatus.toLowerCase() === 'vigente') { g.vigentes++; g.subtotal += inv.subtotal; }
+      else g.canceladas++;
+    }
+    return map;
+  }
+
+  /* ---------------- generación del archivo de salida ---------------- */
+  const CUR_FMT = '_-* #,##0.00_-;\\-* #,##0.00_-;_-* "-"??_-;_-@';
+  const FONT_FAMILY = 'Calibri';
+  const FONT_SIZE = 11;
+  const RED_FILL = 'FFFF0000';
+
+  function excelSerial(date) {
+    const epoch = Date.UTC(1899, 11, 30);
+    return Math.round((date.getTime() - epoch) / 86400000);
+  }
+
+  async function generateOutput(opts) {
+    const { invoices, selectedRfcs, rfcOrder, onProgress } = opts;
+
+    const filtered = invoices.filter(inv => selectedRfcs.has(inv.rfc));
+    const orderIndex = new Map(rfcOrder.map((rfc, i) => [rfc, i]));
+    filtered.sort((a, b) => {
+      const oa = orderIndex.has(a.rfc) ? orderIndex.get(a.rfc) : 999;
+      const ob = orderIndex.has(b.rfc) ? orderIndex.get(b.rfc) : 999;
+      if (oa !== ob) return oa - ob;
+      if (a.fecha - b.fecha !== 0) return a.fecha - b.fecha;
+      return String(a.folio).localeCompare(String(b.folio));
+    });
+
+    const workbook = await XlsxPopulate.fromBlankAsync();
+    const sheet = workbook.sheet(0);
+    sheet.name('Facturas');
+
+    const widths = { A: 16, B: 40, C: 10, D: 13, E: 38, F: 14, G: 13, H: 14, I: 14, J: 13, K: 45, L: 8 };
+    for (const col in widths) sheet.column(col).width(widths[col]);
+
+    const HEADERS = ['RFC Emisor', 'Nombre Emisor', 'Folio', 'Fecha Emisión', 'UUID', 'SubTotal',
+      'IVA 16%', 'IVA Retenido', 'Total', 'ISR Retenido', 'Conceptos Descripción', 'Clasificación'];
+    const headerStyle = { bold: true, fontFamily: FONT_FAMILY, fontSize: FONT_SIZE, bottomBorder: 'thin' };
+    HEADERS.forEach((h, i) => {
+      sheet.cell(1, i + 1).value(h).style(headerStyle);
+    });
+
+    const dataStyle = { fontFamily: FONT_FAMILY, fontSize: FONT_SIZE };
+    const curStyle = { ...dataStyle, numberFormat: CUR_FMT };
+    const dateStyle = { ...dataStyle, numberFormat: 'mm-dd-yy' };
+
+    let r = 2;
+    for (const inv of filtered) {
+      const isVigente = inv.estatus.toLowerCase() === 'vigente';
+      sheet.cell(r, 1).value(inv.rfc).style(dataStyle);
+      sheet.cell(r, 2).value(inv.nombre).style(dataStyle);
+      const folioCell = sheet.cell(r, 3).value(String(inv.folio || '')).style(dataStyle);
+      if (!isVigente) folioCell.style({ fill: RED_FILL });
+      sheet.cell(r, 4).value(excelSerial(inv.fecha)).style(dateStyle);
+      sheet.cell(r, 5).value(inv.uuid).style(dataStyle);
+      sheet.cell(r, 6).value(inv.subtotal).style(curStyle);
+      sheet.cell(r, 7).value(inv.iva).style(curStyle);
+      sheet.cell(r, 8).value(inv.ivaret).style(curStyle);
+      sheet.cell(r, 9).value(inv.total).style(curStyle);
+      sheet.cell(r, 10).value(inv.isrret).style(curStyle);
+      sheet.cell(r, 11).value(inv.descripcion).style(dataStyle);
+      sheet.cell(r, 12).value(isVigente ? classify(inv.fecha) : '-').style(dataStyle);
+      r++;
+    }
+    try { sheet.freezePanes(1, 1); } catch (e) { /* no-op */ }
+
+    // hoja de referencia con la lista de RFC usada
+    const rfcSheet = workbook.addSheet('RFCs filtrados');
+    rfcSheet.cell(1, 1).value('RFC').style(headerStyle);
+    rfcOrder.forEach((rfc, i) => {
+      rfcSheet.cell(i + 2, 1).value(rfc).style(dataStyle);
+    });
+    rfcSheet.column('A').width(20);
+
+    if (onProgress) onProgress(filtered.length);
+
+    const blob = await workbook.outputAsync();
+    return { blob, count: filtered.length };
+  }
+
+  function base64ToArrayBuffer(base64) {
+    const binary = atob(base64);
+    const len = binary.length;
+    const bytes = new Uint8Array(len);
+    for (let i = 0; i < len; i++) bytes[i] = binary.charCodeAt(i);
+    return bytes.buffer;
+  }
+
+  window.SatTool = {
+    normalizeRfc, loadRfcList, saveRfcList,
+    classify, classifyWeeks,
+    parseWorkbookToInvoices, buildRfcSummary,
+    generateOutput, base64ToArrayBuffer
+  };
+})();
+
+</script>
+<script>
+(function () {
+  'use strict';
+  const banner = document.getElementById('libBanner');
+  const dropzoneEl = document.getElementById('dropzone');
+
+  banner.style.display = 'block';
+  banner.textContent = 'Cargando herramientas de Excel…';
+  banner.className = 'status-line';
+  dropzoneEl.style.pointerEvents = 'none';
+  dropzoneEl.style.opacity = '.5';
+
+  window.LIBS_READY.then((ok) => {
+    if (!ok || typeof XLSX === 'undefined' || typeof XlsxPopulate === 'undefined') {
+      banner.textContent = 'No se pudieron cargar las librerías necesarias (XLSX / XlsxPopulate). Revisa tu conexión a internet o prueba desde otra red/navegador — algunas redes de oficina bloquean estos CDNs.';
+      banner.className = 'status-line error';
+      return;
+    }
+    banner.style.display = 'none';
+    dropzoneEl.style.pointerEvents = '';
+    dropzoneEl.style.opacity = '';
+    initApp();
+  });
+
+  function initApp() {
+    const T = window.SatTool;
+
+    const els = {
+      dropzone: document.getElementById('dropzone'),
+      fileInput: document.getElementById('fileInput'),
+      filename: document.getElementById('filename'),
+      parseStatus: document.getElementById('parseStatus'),
+      step2: document.getElementById('step2'),
+      step3: document.getElementById('step3'),
+      summaryGrid: document.getElementById('summaryGrid'),
+      rfcBody: document.getElementById('rfcBody'),
+      selectionCount: document.getElementById('selectionCount'),
+      btnSelectAll: document.getElementById('btnSelectAll'),
+      btnSelectNone: document.getElementById('btnSelectNone'),
+      newRfcInput: document.getElementById('newRfcInput'),
+      btnAddRfc: document.getElementById('btnAddRfc'),
+      btnGenerate: document.getElementById('btnGenerate'),
+      generateStatus: document.getElementById('generateStatus')
+    };
+
+    let allInvoices = [];
+    let rfcSummary = new Map();
+    let rfcList = T.loadRfcList();
+    let selected = new Set(rfcList);
+
+    const money = (n) => (n || 0).toLocaleString('es-MX', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+
+    els.dropzone.addEventListener('dragover', (e) => { e.preventDefault(); els.dropzone.classList.add('drag'); });
+    els.dropzone.addEventListener('dragleave', () => els.dropzone.classList.remove('drag'));
+    els.dropzone.addEventListener('drop', (e) => {
+      e.preventDefault(); els.dropzone.classList.remove('drag');
+      if (e.dataTransfer.files.length) handleFile(e.dataTransfer.files[0]);
+    });
+    els.fileInput.addEventListener('change', (e) => {
+      if (e.target.files.length) handleFile(e.target.files[0]);
+    });
+
+    function handleFile(file) {
+      els.filename.textContent = file.name;
+      els.parseStatus.textContent = 'Leyendo archivo…';
+      els.parseStatus.className = 'status-line';
+      const reader = new FileReader();
+      reader.onload = (e) => {
+        try {
+          const data = new Uint8Array(e.target.result);
+          const workbook = XLSX.read(data, { type: 'array', cellDates: true });
+          allInvoices = T.parseWorkbookToInvoices(workbook);
+          if (!allInvoices.length) throw new Error('No se encontraron facturas en el archivo.');
+          els.parseStatus.textContent = `${allInvoices.length} facturas encontradas (vigentes y canceladas).`;
+          els.parseStatus.className = 'status-line ok';
+          onParsed();
+        } catch (err) {
+          els.parseStatus.textContent = 'Error: ' + err.message;
+          els.parseStatus.className = 'status-line error';
+          console.error(err);
+        }
+      };
+      reader.readAsArrayBuffer(file);
+    }
+
+    function onParsed() {
+      rfcSummary = T.buildRfcSummary(allInvoices);
+      // asegurar que los RFC de la lista guardada aparezcan aunque no tengan facturas este mes
+      renderSummary();
+      renderRfcTable();
+      els.step2.classList.remove('disabled');
+      els.step3.classList.remove('disabled');
+    }
+
+    function renderSummary() {
+      const totalFacturas = allInvoices.length;
+      const vigentes = allInvoices.filter(i => i.estatus.toLowerCase() === 'vigente').length;
+      const canceladas = totalFacturas - vigentes;
+      const distintos = rfcSummary.size;
+      els.summaryGrid.innerHTML = `
+        <div class="metric"><div class="n">${totalFacturas}</div><div class="l">Facturas totales</div></div>
+        <div class="metric"><div class="n">${vigentes}</div><div class="l">Vigentes</div></div>
+        <div class="metric"><div class="n">${canceladas}</div><div class="l">Canceladas</div></div>
+        <div class="metric"><div class="n">${distintos}</div><div class="l">RFC distintos en archivo</div></div>
+      `;
+    }
+
+    function displayList() {
+      // combinar la lista guardada con cualquier RFC visto en el archivo, lista guardada primero (en su orden)
+      const seen = new Set(rfcList);
+      const extra = [...rfcSummary.keys()].filter(rfc => !seen.has(rfc));
+      return rfcList.concat(extra);
+    }
+
+    function renderRfcTable() {
+      const list = displayList();
+      els.rfcBody.innerHTML = list.map(rfc => rowHtml(rfc)).join('');
+      els.rfcBody.querySelectorAll('input[type=checkbox][data-rfc]').forEach(cb => {
+        cb.addEventListener('change', () => {
+          if (cb.checked) selected.add(cb.dataset.rfc); else selected.delete(cb.dataset.rfc);
+          updateSelectionCount();
+        });
+      });
+      els.rfcBody.querySelectorAll('button[data-remove-rfc]').forEach(btn => {
+        btn.addEventListener('click', () => {
+          const rfc = btn.dataset.removeRfc;
+          rfcList = rfcList.filter(r => r !== rfc);
+          selected.delete(rfc);
+          T.saveRfcList(rfcList);
+          renderRfcTable();
+        });
+      });
+      updateSelectionCount();
+    }
+
+    function rowHtml(rfc) {
+      const g = rfcSummary.get(rfc);
+      const checked = selected.has(rfc) ? 'checked' : '';
+      const inSavedList = rfcList.includes(rfc);
+      const nombre = g ? g.nombre : '<span style="color:var(--text-faint)">(sin facturas este mes)</span>';
+      const vig = g ? g.vigentes : 0;
+      const canc = g ? g.canceladas : 0;
+      const subt = g ? g.subtotal : 0;
+      const removeBtn = inSavedList
+        ? `<button class="btn ghost small" data-remove-rfc="${rfc}" type="button">Quitar de lista</button>`
+        : `<span class="badge ok">nuevo este mes</span>`;
+      return `
+        <tr>
+          <td><input type="checkbox" data-rfc="${rfc}" ${checked}></td>
+          <td class="rfc">${escapeHtml(rfc)}</td>
+          <td>${nombre}</td>
+          <td><span class="amt">${vig}</span></td>
+          <td><span class="amt">${canc}</span></td>
+          <td><span class="amt">$${money(subt)}</span></td>
+          <td>${removeBtn}</td>
+        </tr>
+      `;
+    }
+
+    function escapeHtml(s) {
+      return String(s == null ? '' : s).replace(/[&<>"']/g, (c) => ({
+        '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;'
+      }[c]));
+    }
+
+    function updateSelectionCount() {
+      els.selectionCount.textContent = `${selected.size} RFC seleccionados`;
+    }
+
+    els.btnSelectAll.addEventListener('click', () => {
+      displayList().forEach(rfc => selected.add(rfc));
+      renderRfcTable();
+    });
+    els.btnSelectNone.addEventListener('click', () => {
+      selected.clear();
+      renderRfcTable();
+    });
+
+    els.btnAddRfc.addEventListener('click', () => {
+      const rfc = T.normalizeRfc(els.newRfcInput.value);
+      if (!rfc) return;
+      if (!/^[A-Z&Ñ]{3,4}\d{6}[A-Z0-9]{3}$/.test(rfc)) {
+        if (!confirm('Ese RFC no tiene el formato usual. ¿Agregarlo de todas formas?')) return;
+      }
+      if (!rfcList.includes(rfc)) {
+        rfcList.push(rfc);
+        T.saveRfcList(rfcList);
+      }
+      selected.add(rfc);
+      els.newRfcInput.value = '';
+      renderRfcTable();
+    });
+    els.newRfcInput.addEventListener('keydown', (e) => {
+      if (e.key === 'Enter') { e.preventDefault(); els.btnAddRfc.click(); }
+    });
+
+    els.btnGenerate.addEventListener('click', async () => {
+      if (!selected.size) { alert('Selecciona al menos un RFC.'); return; }
+      els.btnGenerate.disabled = true;
+      els.generateStatus.className = 'status-line';
+      els.generateStatus.innerHTML = '<span class="spinner"></span>Generando archivo…';
+      try {
+        const result = await T.generateOutput({
+          invoices: allInvoices,
+          selectedRfcs: selected,
+          rfcOrder: displayList()
+        });
+        downloadBlob(result.blob, buildFileName());
+        els.generateStatus.textContent = `Listo — ${result.count} facturas incluidas.`;
+        els.generateStatus.className = 'status-line ok';
+      } catch (err) {
+        console.error(err);
+        els.generateStatus.textContent = 'Error al generar: ' + err.message;
+        els.generateStatus.className = 'status-line error';
+      } finally {
+        els.btnGenerate.disabled = false;
+      }
+    });
+
+    function buildFileName() {
+      const first = allInvoices[0] && allInvoices[0].fecha;
+      let stamp = new Date().toISOString().slice(0, 10);
+      if (first) {
+        const meses = ['ENE', 'FEB', 'MAR', 'ABR', 'MAY', 'JUN', 'JUL', 'AGO', 'SEP', 'OCT', 'NOV', 'DIC'];
+        stamp = `${meses[first.getUTCMonth()]}_${first.getUTCFullYear()}`;
+      }
+      return `Facturas_SAT_${stamp}.xlsx`;
+    }
+
+    function downloadBlob(blob, filename) {
+      const url = window.URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url; a.download = filename;
+      document.body.appendChild(a); a.click();
+      window.URL.revokeObjectURL(url); document.body.removeChild(a);
+    }
+  }
+})();
+
+</script>
+</body>
+</html>
