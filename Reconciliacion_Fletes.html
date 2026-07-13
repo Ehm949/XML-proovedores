@@ -328,7 +328,7 @@
       <div class="step-num">3</div>
       <div>
         <h2>Numeración de hojas</h2>
-        <div class="sub">Cada semana se guarda en una pestaña, numerada consecutivamente</div>
+        <div class="sub">Cada quincena se guarda en una pestaña, numerada consecutivamente</div>
       </div>
     </div>
     <div class="step-body">
@@ -346,7 +346,7 @@
       <div class="step-num">4</div>
       <div>
         <h2>Generar archivo</h2>
-        <div class="sub">Se descargará un .xlsx con hoja BASE + una hoja por semana</div>
+        <div class="sub">Se descargará un .xlsx con hoja BASE + una hoja por quincena</div>
       </div>
     </div>
     <div class="step-body">
@@ -510,29 +510,13 @@
     return nombres ? `${apellidos} ${nombres}` : apellidos;
   }
 
-  /* ---------------- semanas ---------------- */
+  /* ---------------- quincenas ---------------- */
   function getWeeksForMonth(year, month) {
     const lastDay = new Date(Date.UTC(year, month, 0)).getUTCDate();
-    const weeks = [];
-    let cur = 1;
-    while (cur <= lastDay) {
-      const curDate = new Date(Date.UTC(year, month - 1, cur));
-      const dow = curDate.getUTCDay();
-      const daysUntilSat = (6 - dow + 7) % 7;
-      let end = cur + daysUntilSat;
-      if (end > lastDay) end = lastDay;
-      weeks.push([cur, end]);
-      cur = end + 1;
-    }
-    if (weeks.length > 1) {
-      const last = weeks[weeks.length - 1];
-      const lastLen = last[1] - last[0] + 1;
-      if (lastLen < 7) { weeks[weeks.length - 2][1] = last[1]; weeks.pop(); }
-    }
-    return weeks.map(([s, e]) => ({
-      start: new Date(Date.UTC(year, month - 1, s)),
-      end: new Date(Date.UTC(year, month - 1, e))
-    }));
+    return [
+      { start: new Date(Date.UTC(year, month - 1, 1)), end: new Date(Date.UTC(year, month - 1, 15)) },
+      { start: new Date(Date.UTC(year, month - 1, 16)), end: new Date(Date.UTC(year, month - 1, lastDay)) }
+    ];
   }
 
   function computeAllWeeks(invoices) {
@@ -645,7 +629,7 @@
     return map;
   }
 
-  /* ---------------- construcción de hoja semanal desde cero ---------------- */
+  /* ---------------- construcción de hoja de quincena desde cero ---------------- */
   const CUR_FMT = '_-* #,##0.00_-;\\-* #,##0.00_-;_-* "-"??_-;_-@';
   const FONT_FAMILY = 'Calibri';
   const FONT_SIZE = 12;
@@ -705,7 +689,7 @@
     ['K', 'L', 'M', 'N', 'O', 'P'].forEach(col => {
       sheet.cell(col + totalsRow).formula(`SUM(${col}2:${col}${dataEnd})`).style(totalsStyle);
     });
-    sheet.cell('H' + totalsRow).value('TOTAL SEMANA').style({ bold: true, fontFamily: FONT_FAMILY, fontSize: FONT_SIZE });
+    sheet.cell('H' + totalsRow).value('TOTAL QUINCENA').style({ bold: true, fontFamily: FONT_FAMILY, fontSize: FONT_SIZE });
 
     const legend = [
       ['FLETES', '5301-0006-0000-0000', `+K${totalsRow}`],
@@ -951,7 +935,7 @@
 
   function renderWeeks() {
     els.weeksPreview.innerHTML = weeks.map((w, i) =>
-      `<span class="week-chip">Semana ${i + 1}: <b>${dateFmt(w.start)} – ${dateFmt(w.end)}</b></span>`
+      `<span class="week-chip">Quincena ${i + 1}: <b>${dateFmt(w.start)} – ${dateFmt(w.end)}</b></span>`
     ).join('');
   }
 
