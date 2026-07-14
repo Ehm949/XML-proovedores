@@ -762,10 +762,10 @@
       const weekInvoices = filtered
         .filter(inv => inv.fecha >= week.start && inv.fecha <= week.end)
         .sort((a, b) => {
+          if (a.fecha - b.fecha !== 0) return a.fecha - b.fecha;
           const na = finalNameByRfc[a.rfc] || '';
           const nb = finalNameByRfc[b.rfc] || '';
           if (na !== nb) return na < nb ? -1 : 1;
-          if (a.fecha - b.fecha !== 0) return a.fecha - b.fecha;
           return String(a.folio).localeCompare(String(b.folio));
         });
 
