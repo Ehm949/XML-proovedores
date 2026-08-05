@@ -349,11 +349,6 @@
         <button class="mode-btn" data-mode="diaria" type="button">Diario (1 hoja por día)</button>
       </div>
 
-      <div class="config-row" style="margin-top:18px;">
-        <label for="sheetBaseNumber">Número inicial</label>
-        <input type="text" id="sheetBaseNumber" value="11" maxlength="6">
-      </div>
-
       <div class="toolbar" style="margin-top:20px;">
         <button class="btn ghost small" id="btnPeriodsAll">Marcar todos</button>
         <button class="btn ghost small" id="btnPeriodsNone">Desmarcar todo</button>
@@ -426,8 +421,7 @@
   const LS_KEYS = {
     extraBase: 'sfn_flete_extraBase_v1',
     rfcMap: 'sfn_flete_rfcMap_v1',
-    preferredRfcs: 'sfn_flete_preferredRfcs_v1',
-    sheetBaseNumber: 'sfn_flete_sheetBaseNumber_v1'
+    preferredRfcs: 'sfn_flete_preferredRfcs_v1'
   };
 
   /* ---------------- utilidades de texto ---------------- */
@@ -716,6 +710,7 @@
 
   /* ---------------- construcción de hoja de quincena desde cero ---------------- */
   const CUR_FMT = '_-* #,##0.00_-;\\-* #,##0.00_-;_-* "-"??_-;_-@';
+  const CUR_FMT_DOLLAR = '"$"#,##0.00;-"$"#,##0.00';
   const FONT_FAMILY = 'Calibri';
   const FONT_SIZE = 12;
   const BORDER_THIN = { topBorder: 'thin', bottomBorder: 'thin', leftBorder: 'thin', rightBorder: 'thin' };
@@ -784,6 +779,7 @@
     ];
     const legendLabelStyle = { bold: true, fill: '8EAADB', fontFamily: FONT_FAMILY, fontSize: FONT_SIZE, horizontalAlignment: 'left', ...BORDER_THIN };
     const legendValStyle = { fill: 'B4C6E7', fontFamily: FONT_FAMILY, fontSize: FONT_SIZE, horizontalAlignment: 'left', ...BORDER_THIN };
+    const legendWStyle = { ...legendValStyle, numberFormat: CUR_FMT_DOLLAR, horizontalAlignment: 'right' };
     legend.forEach(([label, cuenta, wformula], i) => {
       const rr = 2 + i;
       sheet.cell('Q' + rr).value(label).style(legendLabelStyle);
@@ -792,7 +788,7 @@
       sheet.cell('T' + rr).formula(`MID(R${rr},6,4)`).style(legendValStyle);
       sheet.cell('U' + rr).formula(`MID(R${rr},11,4)`).style(legendValStyle);
       sheet.cell('V' + rr).formula(`MID(R${rr},16,4)`).style(legendValStyle);
-      sheet.cell('W' + rr).formula(wformula).style(legendValStyle);
+      sheet.cell('W' + rr).formula(wformula).style(legendWStyle);
     });
 
     return { dataRows: dataEnd - 1, totalsRow };
@@ -800,7 +796,7 @@
 
   /* ---------------- generación del archivo de salida ---------------- */
   async function generateOutput(opts) {
-    const { invoices, selectedRfcs, providers, sheetBaseNumber, periodMode, selectedPeriodKeys, onProgress } = opts;
+    const { invoices, selectedRfcs, providers, periodMode, selectedPeriodKeys, onProgress } = opts;
 
     const filtered = invoices.filter(inv => selectedRfcs.has(inv.rfc));
     let periods = computePeriods(filtered, periodMode);
@@ -860,7 +856,7 @@
           return String(a.folio).localeCompare(String(b.folio));
         });
 
-      const sheetName = String(sheetBaseNumber) + String(sheetIndex);
+      const sheetName = String(sheetIndex);
       const sheet = workbook.addSheet(sheetName);
       buildWeekSheet(sheet, periodInvoices, finalNameByRfc, rfcMap);
 
@@ -948,7 +944,6 @@
     btnSelectNone: document.getElementById('btnSelectNone'),
     baseEditorBody: document.getElementById('baseEditorBody'),
     modeToggle: document.getElementById('modeToggle'),
-    sheetBaseNumber: document.getElementById('sheetBaseNumber'),
     periodsBody: document.getElementById('periodsBody'),
     periodsCount: document.getElementById('periodsCount'),
     btnPeriodsAll: document.getElementById('btnPeriodsAll'),
@@ -1201,14 +1196,13 @@
   }
 
   function refreshSheetNames() {
-    const base = els.sheetBaseNumber.value.trim() || '11';
     const rows = els.periodsBody.querySelectorAll('tr');
     let idx = 1;
     rows.forEach((tr, i) => {
       const p = periods[i];
       const cell = tr.querySelector('.sheetname-cell');
       if (!p || !cell) return;
-      if (selectedPeriods.has(p.key)) { cell.textContent = base + idx; idx++; }
+      if (selectedPeriods.has(p.key)) { cell.textContent = String(idx); idx++; }
       else cell.textContent = '—';
     });
     updatePeriodsCount();
@@ -1226,7 +1220,6 @@
     selectedPeriods.clear();
     renderPeriods();
   });
-  els.sheetBaseNumber.addEventListener('input', refreshSheetNames);
 
   /* ---------------- editor BASE local ---------------- */
   function renderBaseEditor() {
@@ -1275,12 +1268,10 @@
     els.generateStatus.className = 'status-line';
     els.generateStatus.innerHTML = '<span class="spinner"></span>Generando archivo…';
     try {
-      const sheetBaseNumber = els.sheetBaseNumber.value.trim() || '11';
       const result = await T.generateOutput({
         invoices: allInvoices,
         selectedRfcs: selected,
         providers,
-        sheetBaseNumber,
         periodMode,
         selectedPeriodKeys: selectedPeriods,
         onProgress: (i, total, name) => {
