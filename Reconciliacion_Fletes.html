@@ -209,6 +209,17 @@
   .mode-btn.active{ background: var(--amber); color: #1a1305; }
   .period-label{font-family: var(--mono); font-size: 12.5px;}
 
+  .diario-toggle-row{
+    display:flex; align-items:center; gap:10px; cursor:pointer; font-size:13.5px; color: var(--text);
+    padding: 4px 0;
+  }
+  .diario-toggle-row input{ width:16px; height:16px; accent-color: var(--amber); cursor:pointer; }
+  .diario-options{
+    display:none; margin-top:14px; padding:16px; background: var(--bg-alt);
+    border: 1px solid var(--border-soft); border-radius: 8px;
+  }
+  .diario-options.open{ display:block; }
+
   .footer-actions{display:flex; justify-content:space-between; align-items:center; flex-wrap:wrap; gap:14px;}
   .status-line{font-size: 12.5px; color: var(--text-dim);}
   .status-line.error{color: var(--red);}
@@ -349,6 +360,11 @@
         <button class="mode-btn" data-mode="diaria" type="button">Diario (1 hoja por día)</button>
       </div>
 
+      <label class="diario-toggle-row" style="margin-top:14px;">
+        <input type="checkbox" id="chkSplitProvider">
+        <span>Separar también por <b>proveedor</b> (una hoja por proveedor dentro de cada periodo)</span>
+      </label>
+
       <div class="toolbar" style="margin-top:20px;">
         <button class="btn ghost small" id="btnPeriodsAll">Marcar todos</button>
         <button class="btn ghost small" id="btnPeriodsNone">Desmarcar todo</button>
@@ -381,7 +397,24 @@
       </div>
     </div>
     <div class="step-body">
-      <div class="footer-actions">
+      <label class="diario-toggle-row">
+        <input type="checkbox" id="chkDiario">
+        <span>Incluir hoja de <b>Diario</b> contable (formato para importar a tu otro sistema)</span>
+      </label>
+
+      <div class="diario-options" id="diarioOptions">
+        <div class="config-row">
+          <label for="diarioStartNumber">Número de diario inicial</label>
+          <input type="text" id="diarioStartNumber" value="111" maxlength="10" style="width:110px;">
+        </div>
+        <div class="config-row" style="align-items:flex-start; margin-top:12px;">
+          <label for="diarioDescription" style="padding-top:9px;">Descripción</label>
+          <textarea id="diarioDescription" rows="2" style="flex:1; min-width:280px; background:var(--bg-alt); border:1px solid var(--border); color:var(--text); border-radius:6px; padding:9px 12px; font-size:13px; font-family:inherit;">PROVISIÓN AL {DIA} DE {MES} {ANIO} EDUARDO H</textarea>
+        </div>
+        <div class="status-line" style="margin-top:6px;">Usa <b>{DIA}</b>, <b>{MES}</b> y <b>{ANIO}</b> donde quieras que aparezcan — se llenan solos por cada periodo.</div>
+      </div>
+
+      <div class="footer-actions" style="margin-top:20px;">
         <button class="btn big" id="btnGenerate">Generar archivo Excel</button>
         <span class="status-line" id="generateStatus"></span>
       </div>
@@ -620,6 +653,41 @@
     return periods;
   }
 
+  function computeUnits(invoices, mode, splitByProvider, nameByRfc) {
+    const periods = computePeriods(invoices, mode);
+    if (!splitByProvider) {
+      return periods.map(p => ({
+        key: p.key, periodKey: p.key, start: p.start, end: p.end,
+        label: p.label, count: p.count, rfc: null
+      }));
+    }
+    const units = [];
+    for (const period of periods) {
+      const pStart = dayFloor(period.start), pEnd = dayFloor(period.end);
+      const inPeriod = invoices.filter(inv => {
+        const d = dayFloor(inv.fecha);
+        return d >= pStart && d <= pEnd;
+      });
+      const byRfc = new Map();
+      for (const inv of inPeriod) byRfc.set(inv.rfc, (byRfc.get(inv.rfc) || 0) + 1);
+      const rfcs = [...byRfc.keys()].sort((a, b) => {
+        const na = nameByRfc[a] || a, nb = nameByRfc[b] || b;
+        return na < nb ? -1 : na > nb ? 1 : 0;
+      });
+      for (const rfc of rfcs) {
+        units.push({
+          key: period.key + '::' + rfc,
+          periodKey: period.key,
+          start: period.start, end: period.end,
+          label: `${period.label} — ${nameByRfc[rfc] || rfc}`,
+          count: byRfc.get(rfc),
+          rfc
+        });
+      }
+    }
+    return units;
+  }
+
   /* ---------------- parseo del archivo fuente (SheetJS) ---------------- */
   const REQUIRED_HEADERS = ['Estatus', 'UUID', 'Folio', 'Emisión', 'Emisor RFC', 'Emisor Nombre',
     'SubTotal', 'IVA Retenido', 'ISR Retenido'];
@@ -715,6 +783,18 @@
   const FONT_SIZE = 12;
   const BORDER_THIN = { topBorder: 'thin', bottomBorder: 'thin', leftBorder: 'thin', rightBorder: 'thin' };
 
+  const ACCT_FLETES = '5301-0006-0000-0000';
+  const ACCT_IVARET = '2123-0002-0000-0000';
+  const ACCT_ISRRET = '2123-0004-0000-0000';
+  const ACCT_IVAFACT = '1142-0001-0000-0000';
+
+  const MESES_LARGOS = ['ENERO', 'FEBRERO', 'MARZO', 'ABRIL', 'MAYO', 'JUNIO', 'JULIO',
+    'AGOSTO', 'SEPTIEMBRE', 'OCTUBRE', 'NOVIEMBRE', 'DICIEMBRE'];
+
+  function round2(n) {
+    return Math.round((n + Number.EPSILON) * 100) / 100;
+  }
+
   function buildWeekSheet(sheet, weekInvoices, finalNameByRfc, rfcMap) {
     const widths = { A: 22.3, B: 7.3, C: 7.0, D: 6.1, E: 7.0, F: 45.0, G: 12.7, H: 50.0, I: 7.7,
       J: 10.0, K: 16.7, L: 16.7, M: 13.4, N: 16.4, O: 15.0, P: 18.0, Q: 22.0, R: 23.0,
@@ -772,10 +852,10 @@
     sheet.cell('H' + totalsRow).value('TOTAL QUINCENA').style({ bold: true, fontFamily: FONT_FAMILY, fontSize: FONT_SIZE });
 
     const legend = [
-      ['FLETES', '5301-0006-0000-0000', `+K${totalsRow}`],
-      ['IVA RETENIDO FLETES', '2123-0002-0000-0000', `+L${totalsRow}`],
-      ['ISR RETENIDO ', '2123-0004-0000-0000', `+M${totalsRow}`],
-      ['IVA FACTURADO', '1142-0001-0000-0000', `+O${totalsRow}`]
+      ['FLETES', ACCT_FLETES, `+K${totalsRow}`],
+      ['IVA RETENIDO FLETES', ACCT_IVARET, `+L${totalsRow}`],
+      ['ISR RETENIDO ', ACCT_ISRRET, `+M${totalsRow}`],
+      ['IVA FACTURADO', ACCT_IVAFACT, `+O${totalsRow}`]
     ];
     const legendLabelStyle = { bold: true, fill: '8EAADB', fontFamily: FONT_FAMILY, fontSize: FONT_SIZE, horizontalAlignment: 'left', ...BORDER_THIN };
     const legendValStyle = { fill: 'B4C6E7', fontFamily: FONT_FAMILY, fontSize: FONT_SIZE, horizontalAlignment: 'left', ...BORDER_THIN };
@@ -794,13 +874,81 @@
     return { dataRows: dataEnd - 1, totalsRow };
   }
 
+  /* ---------------- construcción del bloque de Diario contable ---------------- */
+  function diarioInvoiceLabel(inv, finalNameByRfc) {
+    const provName = finalNameByRfc[inv.rfc] || '';
+    return `${padFolio(inv.folio)} ${provName} ${inv.uuid || ''}`.trim();
+  }
+
+  function invoiceTotal(inv) {
+    const iva16 = inv.subtotal * 0.16;
+    return inv.subtotal + iva16 - inv.ivaret - inv.isrret;
+  }
+
+  function buildDiarioBlock(sheet, startRow, periodInvoices, finalNameByRfc, finalCuentaByRfc, diarioNumber, descriptionText, lastDay, monthLabel) {
+    let r = startRow;
+
+    sheet.cell('A' + r).value('Dr');
+    sheet.cell('B' + r).value(diarioNumber);
+    sheet.cell('C' + r).value(descriptionText);
+    sheet.cell('D' + r).value(lastDay);
+    r++;
+
+    for (const inv of periodInvoices) {
+      sheet.cell('B' + r).value(finalCuentaByRfc[inv.rfc] || '');
+      sheet.cell('C' + r).value(0);
+      sheet.cell('D' + r).value(diarioInvoiceLabel(inv, finalNameByRfc));
+      sheet.cell('E' + r).value(1);
+      sheet.cell('G' + r).value(round2(invoiceTotal(inv)));
+      r++;
+    }
+
+    const sumSubtotal = periodInvoices.reduce((a, b) => a + b.subtotal, 0);
+    const sumIsrRet = periodInvoices.reduce((a, b) => a + b.isrret, 0);
+    const sumIva16 = sumSubtotal * 0.16;
+
+    sheet.cell('B' + r).value(ACCT_FLETES);
+    sheet.cell('C' + r).value(0);
+    sheet.cell('D' + r).value(`${monthLabel} FLETES`);
+    sheet.cell('E' + r).value(1);
+    sheet.cell('F' + r).value(round2(sumSubtotal));
+    r++;
+
+    sheet.cell('B' + r).value(ACCT_ISRRET);
+    sheet.cell('C' + r).value(0);
+    sheet.cell('D' + r).value(`${monthLabel} ISR RETENIDO`);
+    sheet.cell('E' + r).value(1);
+    sheet.cell('G' + r).value(round2(sumIsrRet));
+    r++;
+
+    sheet.cell('B' + r).value(ACCT_IVAFACT);
+    sheet.cell('C' + r).value(0);
+    sheet.cell('D' + r).value(`${monthLabel} IVA FACTURADO`);
+    sheet.cell('E' + r).value(1);
+    sheet.cell('F' + r).value(round2(sumIva16));
+    r++;
+
+    for (const inv of periodInvoices) {
+      sheet.cell('B' + r).value(ACCT_IVARET);
+      sheet.cell('C' + r).value(0);
+      sheet.cell('D' + r).value(diarioInvoiceLabel(inv, finalNameByRfc));
+      sheet.cell('E' + r).value(1);
+      sheet.cell('G' + r).value(round2(inv.ivaret));
+      r++;
+    }
+
+    sheet.cell('B' + r).value('FIN_PARTIDAS');
+    r++;
+
+    return r;
+  }
+
   /* ---------------- generación del archivo de salida ---------------- */
   async function generateOutput(opts) {
-    const { invoices, selectedRfcs, providers, periodMode, selectedPeriodKeys, onProgress } = opts;
+    const { invoices, selectedRfcs, providers, periodMode, units, selectedUnitKeys, onProgress } = opts;
 
     const filtered = invoices.filter(inv => selectedRfcs.has(inv.rfc));
-    let periods = computePeriods(filtered, periodMode);
-    if (selectedPeriodKeys) periods = periods.filter(p => selectedPeriodKeys.has(p.key));
+    const selectedUnits = units.filter(u => selectedUnitKeys.has(u.key));
 
     const finalNameByRfc = {};
     const finalCuentaByRfc = {};
@@ -840,29 +988,66 @@
     let sheetIndex = 1;
     const generatedNames = [];
 
-    for (const period of periods) {
-      const pStart = dayFloor(period.start);
-      const pEnd = dayFloor(period.end);
-      const periodInvoices = filtered
-        .filter(inv => {
-          const d = dayFloor(inv.fecha);
-          return d >= pStart && d <= pEnd;
-        })
-        .sort((a, b) => {
-          if (a.fecha - b.fecha !== 0) return a.fecha - b.fecha;
-          const na = finalNameByRfc[a.rfc] || '';
-          const nb = finalNameByRfc[b.rfc] || '';
-          if (na !== nb) return na < nb ? -1 : 1;
-          return String(a.folio).localeCompare(String(b.folio));
-        });
+    function sortInvoices(list) {
+      return list.sort((a, b) => {
+        if (a.fecha - b.fecha !== 0) return a.fecha - b.fecha;
+        const na = finalNameByRfc[a.rfc] || '';
+        const nb = finalNameByRfc[b.rfc] || '';
+        if (na !== nb) return na < nb ? -1 : 1;
+        return String(a.folio).localeCompare(String(b.folio));
+      });
+    }
+
+    const invoicesByPeriodKey = new Map();
+
+    for (const unit of selectedUnits) {
+      const uStart = dayFloor(unit.start);
+      const uEnd = dayFloor(unit.end);
+      let unitInvoices = filtered.filter(inv => {
+        const d = dayFloor(inv.fecha);
+        return d >= uStart && d <= uEnd;
+      });
+      if (unit.rfc) unitInvoices = unitInvoices.filter(inv => inv.rfc === unit.rfc);
+      unitInvoices = sortInvoices(unitInvoices);
 
       const sheetName = String(sheetIndex);
       const sheet = workbook.addSheet(sheetName);
-      buildWeekSheet(sheet, periodInvoices, finalNameByRfc, rfcMap);
+      buildWeekSheet(sheet, unitInvoices, finalNameByRfc, rfcMap);
 
-      generatedNames.push({ sheetName, count: periodInvoices.length, start: period.start, end: period.end });
-      if (onProgress) onProgress(sheetIndex, periods.length, sheetName);
+      generatedNames.push({ sheetName, count: unitInvoices.length, start: unit.start, end: unit.end, label: unit.label });
+      if (onProgress) onProgress(sheetIndex, selectedUnits.length, sheetName);
       sheetIndex++;
+
+      if (!invoicesByPeriodKey.has(unit.periodKey)) invoicesByPeriodKey.set(unit.periodKey, []);
+      invoicesByPeriodKey.get(unit.periodKey).push(...unitInvoices);
+    }
+
+    let diarioBlocks = 0;
+    if (opts.includeDiario && selectedUnits.length) {
+      const allPeriods = computePeriods(filtered, periodMode);
+      const diarioPeriods = allPeriods.filter(p => invoicesByPeriodKey.has(p.key));
+
+      const diarioSheet = workbook.addSheet('DIARIO');
+      const widths = { A: 6, B: 22, C: 6, D: 65, E: 6, F: 16, G: 16 };
+      for (const col in widths) diarioSheet.column(col).width(widths[col]);
+
+      let diarioNumber = Number(opts.diarioStartNumber) || 111;
+      let row = 3;
+      for (const period of diarioPeriods) {
+        const periodInvoices = sortInvoices(invoicesByPeriodKey.get(period.key) || []);
+
+        const lastDay = period.end.getUTCDate();
+        const monthLabel = MESES_LARGOS[period.end.getUTCMonth()];
+        const yearLabel = String(period.end.getUTCFullYear());
+        const description = String(opts.diarioDescriptionTemplate || 'PROVISIÓN AL {DIA} DE {MES} {ANIO}')
+          .replace(/\{DIA\}/g, String(lastDay))
+          .replace(/\{MES\}/g, monthLabel)
+          .replace(/\{ANIO\}/g, yearLabel);
+        row = buildDiarioBlock(diarioSheet, row, periodInvoices, finalNameByRfc, finalCuentaByRfc,
+          diarioNumber, description, lastDay, monthLabel);
+        diarioNumber++;
+        diarioBlocks++;
+      }
     }
 
     try { workbook.activeSheet(generatedNames[0].sheetName); } catch (e) { /* no-op */ }
@@ -871,7 +1056,7 @@
     savePreferredRfcs(selectedRfcs);
 
     const blob = await workbook.outputAsync();
-    return { blob, generatedNames, newlyAdded };
+    return { blob, generatedNames, newlyAdded, diarioBlocks };
   }
 
   function base64ToArrayBuffer(base64) {
@@ -888,7 +1073,7 @@
     normalizeName, tokenKey,
     loadExtraBase, saveExtraBase, loadRfcMap, saveRfcMap, loadPreferredRfcs, savePreferredRfcs,
     rebuildBaseIndexes, matchProvider, suggestReorderedName,
-    getWeeksForMonth, computePeriods,
+    getWeeksForMonth, computePeriods, computeUnits,
     parseWorkbookToInvoices, buildProviderList,
     generateOutput, padFolio
   };
@@ -944,20 +1129,26 @@
     btnSelectNone: document.getElementById('btnSelectNone'),
     baseEditorBody: document.getElementById('baseEditorBody'),
     modeToggle: document.getElementById('modeToggle'),
+    chkSplitProvider: document.getElementById('chkSplitProvider'),
     periodsBody: document.getElementById('periodsBody'),
     periodsCount: document.getElementById('periodsCount'),
     btnPeriodsAll: document.getElementById('btnPeriodsAll'),
     btnPeriodsNone: document.getElementById('btnPeriodsNone'),
     btnGenerate: document.getElementById('btnGenerate'),
-    generateStatus: document.getElementById('generateStatus')
+    generateStatus: document.getElementById('generateStatus'),
+    chkDiario: document.getElementById('chkDiario'),
+    diarioOptions: document.getElementById('diarioOptions'),
+    diarioStartNumber: document.getElementById('diarioStartNumber'),
+    diarioDescription: document.getElementById('diarioDescription')
   };
 
   let allInvoices = [];
   let providers = new Map();
-  let periods = [];
+  let units = [];
   let selected = new Set();
-  let selectedPeriods = new Set();
+  let selectedUnits = new Set();
   let periodMode = 'quincena';
+  let splitByProvider = false;
 
   const money = (n) => (n || 0).toLocaleString('es-MX', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
 
@@ -1002,8 +1193,8 @@
     providers = T.buildProviderList(allInvoices);
     const preferred = T.loadPreferredRfcs();
     selected = new Set([...providers.keys()].filter(rfc => preferred.has(rfc)));
-    periods = [];
-    selectedPeriods = new Set();
+    units = [];
+    selectedUnits = new Set();
 
     renderSummary();
     renderProviders();
@@ -1128,7 +1319,7 @@
 
   function updateSelectionCount() {
     els.selectionCount.textContent = `${selected.size} proveedor(es) seleccionados`;
-    recomputePeriods();
+    recomputeUnits();
   }
 
   els.searchBox.addEventListener('input', () => renderProviders(els.searchBox.value));
@@ -1147,48 +1338,58 @@
     renderProviders(els.searchBox.value);
   });
 
-  /* ---------------- paso 3: modo de periodo + lista ---------------- */
+  /* ---------------- paso 3: modo de periodo + separar por proveedor + lista ---------------- */
   els.modeToggle.querySelectorAll('.mode-btn').forEach(btn => {
     btn.addEventListener('click', () => {
       if (btn.classList.contains('active')) return;
       els.modeToggle.querySelectorAll('.mode-btn').forEach(b => b.classList.remove('active'));
       btn.classList.add('active');
       periodMode = btn.dataset.mode;
-      recomputePeriods();
+      recomputeUnits();
     });
   });
 
-  function recomputePeriods() {
+  els.chkSplitProvider.addEventListener('change', () => {
+    splitByProvider = els.chkSplitProvider.checked;
+    recomputeUnits();
+  });
+
+  function recomputeUnits() {
     const filtered = allInvoices.filter(inv => selected.has(inv.rfc));
-    const oldKeys = new Set(periods.map(p => p.key));
-    periods = T.computePeriods(filtered, periodMode);
+    const nameByRfc = {};
+    for (const rfc of selected) {
+      const p = providers.get(rfc);
+      if (p) nameByRfc[rfc] = p.canonical;
+    }
+    const oldKeys = new Set(units.map(u => u.key));
+    units = T.computeUnits(filtered, periodMode, splitByProvider, nameByRfc);
     const newSelected = new Set();
-    periods.forEach(p => {
-      if (!oldKeys.has(p.key) || selectedPeriods.has(p.key)) newSelected.add(p.key);
+    units.forEach(u => {
+      if (!oldKeys.has(u.key) || selectedUnits.has(u.key)) newSelected.add(u.key);
     });
-    selectedPeriods = newSelected;
-    renderPeriods();
+    selectedUnits = newSelected;
+    renderUnits();
   }
 
-  function renderPeriods() {
-    if (!periods.length) {
+  function renderUnits() {
+    if (!units.length) {
       els.periodsBody.innerHTML = `<tr><td colspan="4" class="status-line" style="padding:14px;">No hay periodos con facturas de los proveedores seleccionados.</td></tr>`;
-      updatePeriodsCount();
+      updateUnitsCount();
       return;
     }
-    els.periodsBody.innerHTML = periods.map((p, i) => `
+    els.periodsBody.innerHTML = units.map((u, i) => `
       <tr>
-        <td><input type="checkbox" data-idx="${i}" ${selectedPeriods.has(p.key) ? 'checked' : ''}></td>
-        <td class="period-label">${escapeHtml(p.label)}</td>
-        <td><span class="amt">${p.count}</span></td>
+        <td><input type="checkbox" data-idx="${i}" ${selectedUnits.has(u.key) ? 'checked' : ''}></td>
+        <td class="period-label">${escapeHtml(u.label)}</td>
+        <td><span class="amt">${u.count}</span></td>
         <td class="rfc sheetname-cell"></td>
       </tr>
     `).join('');
     els.periodsBody.querySelectorAll('input[type=checkbox]').forEach(cb => {
       cb.addEventListener('change', () => {
         const idx = Number(cb.dataset.idx);
-        const key = periods[idx].key;
-        if (cb.checked) selectedPeriods.add(key); else selectedPeriods.delete(key);
+        const key = units[idx].key;
+        if (cb.checked) selectedUnits.add(key); else selectedUnits.delete(key);
         refreshSheetNames();
       });
     });
@@ -1199,26 +1400,26 @@
     const rows = els.periodsBody.querySelectorAll('tr');
     let idx = 1;
     rows.forEach((tr, i) => {
-      const p = periods[i];
+      const u = units[i];
       const cell = tr.querySelector('.sheetname-cell');
-      if (!p || !cell) return;
-      if (selectedPeriods.has(p.key)) { cell.textContent = String(idx); idx++; }
+      if (!u || !cell) return;
+      if (selectedUnits.has(u.key)) { cell.textContent = String(idx); idx++; }
       else cell.textContent = '—';
     });
-    updatePeriodsCount();
+    updateUnitsCount();
   }
 
-  function updatePeriodsCount() {
-    els.periodsCount.textContent = periods.length ? `${selectedPeriods.size} de ${periods.length} periodos seleccionados` : '';
+  function updateUnitsCount() {
+    els.periodsCount.textContent = units.length ? `${selectedUnits.size} de ${units.length} seleccionados` : '';
   }
 
   els.btnPeriodsAll.addEventListener('click', () => {
-    selectedPeriods = new Set(periods.map(p => p.key));
-    renderPeriods();
+    selectedUnits = new Set(units.map(u => u.key));
+    renderUnits();
   });
   els.btnPeriodsNone.addEventListener('click', () => {
-    selectedPeriods.clear();
-    renderPeriods();
+    selectedUnits.clear();
+    renderUnits();
   });
 
   /* ---------------- editor BASE local ---------------- */
@@ -1253,10 +1454,14 @@
     });
   }
 
+  els.chkDiario.addEventListener('change', () => {
+    els.diarioOptions.classList.toggle('open', els.chkDiario.checked);
+  });
+
   /* ---------------- paso 4: generar ---------------- */
   els.btnGenerate.addEventListener('click', async () => {
     if (!selected.size) { alert('Selecciona al menos un proveedor.'); return; }
-    if (!selectedPeriods.size) { alert('Selecciona al menos un periodo (quincena o día).'); return; }
+    if (!selectedUnits.size) { alert('Selecciona al menos un periodo (quincena o día).'); return; }
     for (const rfc of selected) {
       const p = providers.get(rfc);
       if (!p.matched || !p.cuenta) {
@@ -1273,14 +1478,19 @@
         selectedRfcs: selected,
         providers,
         periodMode,
-        selectedPeriodKeys: selectedPeriods,
+        units,
+        selectedUnitKeys: selectedUnits,
+        includeDiario: els.chkDiario.checked,
+        diarioStartNumber: els.diarioStartNumber.value.trim(),
+        diarioDescriptionTemplate: els.diarioDescription.value,
         onProgress: (i, total, name) => {
           els.generateStatus.innerHTML = `<span class="spinner"></span>Generando hoja ${name} (${i}/${total})…`;
         }
       });
       downloadBlob(result.blob, buildFileName());
       const addedMsg = result.newlyAdded.length ? ` · ${result.newlyAdded.length} proveedor(es) nuevo(s) agregado(s) a BASE.` : '';
-      els.generateStatus.textContent = `Listo — ${result.generatedNames.length} hoja(s) generada(s).${addedMsg}`;
+      const diarioMsg = result.diarioBlocks ? ` · Diario con ${result.diarioBlocks} provisión(es).` : '';
+      els.generateStatus.textContent = `Listo — ${result.generatedNames.length} hoja(s) generada(s).${addedMsg}${diarioMsg}`;
       els.generateStatus.className = 'status-line ok';
       renderBaseEditor();
     } catch (err) {
