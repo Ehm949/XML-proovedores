@@ -220,6 +220,24 @@
   }
   .diario-options.open{ display:block; }
 
+  .diario-period-row{
+    display:flex; align-items:center; gap:10px; margin-bottom:8px;
+  }
+  .diario-period-row .diario-period-label{
+    font-family: var(--mono); font-size: 11.5px; color: var(--text-dim);
+    width: 210px; flex-shrink:0;
+  }
+  .diario-period-row input[type=text]{
+    flex:1; background: var(--card); border:1px solid var(--border); color:var(--text);
+    padding: 8px 12px; border-radius:6px; font-size:12.8px;
+  }
+  .diario-period-row input[type=text]:focus{ outline:none; border-color: var(--amber); }
+  .diario-period-row button{
+    flex-shrink:0; background:transparent; border:1px solid var(--border); color:var(--text-dim);
+    border-radius:6px; padding:7px 10px; font-size:12px; cursor:pointer;
+  }
+  .diario-period-row button:hover{ color: var(--amber-soft); border-color: var(--amber); }
+
   .footer-actions{display:flex; justify-content:space-between; align-items:center; flex-wrap:wrap; gap:14px;}
   .status-line{font-size: 12.5px; color: var(--text-dim);}
   .status-line.error{color: var(--red);}
@@ -408,10 +426,15 @@
           <input type="text" id="diarioStartNumber" value="111" maxlength="10" style="width:110px;">
         </div>
         <div class="config-row" style="align-items:flex-start; margin-top:12px;">
-          <label for="diarioDescription" style="padding-top:9px;">Descripción</label>
+          <label for="diarioDescription" style="padding-top:9px;">Plantilla</label>
           <textarea id="diarioDescription" rows="2" style="flex:1; min-width:280px; background:var(--bg-alt); border:1px solid var(--border); color:var(--text); border-radius:6px; padding:9px 12px; font-size:13px; font-family:inherit;">PROVISIÓN AL {DIA} DE {MES} {ANIO} EDUARDO H</textarea>
         </div>
-        <div class="status-line" style="margin-top:6px;">Usa <b>{DIA}</b>, <b>{MES}</b> y <b>{ANIO}</b> donde quieras que aparezcan — se llenan solos por cada periodo.</div>
+        <div class="status-line" style="margin-top:6px;">Usa <b>{DIA}</b>, <b>{MES}</b> y <b>{ANIO}</b> — se llenan solos. La plantilla solo rellena los campos de abajo; cada periodo lo puedes editar aparte.</div>
+
+        <div id="diarioPerPeriodWrap" style="margin-top:16px; display:none;">
+          <div class="status-line" style="margin-bottom:8px; text-transform:uppercase; letter-spacing:.04em; font-size:11px;">Descripción por cada diario</div>
+          <div id="diarioPerPeriodList"></div>
+        </div>
       </div>
 
       <div class="footer-actions" style="margin-top:20px;">
@@ -658,7 +681,7 @@
     if (!splitByProvider) {
       return periods.map(p => ({
         key: p.key, periodKey: p.key, start: p.start, end: p.end,
-        label: p.label, count: p.count, rfc: null
+        label: p.label, periodLabel: p.label, count: p.count, rfc: null
       }));
     }
     const units = [];
@@ -680,6 +703,7 @@
           periodKey: period.key,
           start: period.start, end: period.end,
           label: `${period.label} — ${nameByRfc[rfc] || rfc}`,
+          periodLabel: period.label,
           count: byRfc.get(rfc),
           rfc
         });
@@ -1033,16 +1057,20 @@
 
       let diarioNumber = Number(opts.diarioStartNumber) || 111;
       let row = 3;
+      const diarioDescriptions = opts.diarioDescriptions || {};
       for (const period of diarioPeriods) {
         const periodInvoices = sortInvoices(invoicesByPeriodKey.get(period.key) || []);
 
         const lastDay = period.end.getUTCDate();
         const monthLabel = MESES_LARGOS[period.end.getUTCMonth()];
         const yearLabel = String(period.end.getUTCFullYear());
-        const description = String(opts.diarioDescriptionTemplate || 'PROVISIÓN AL {DIA} DE {MES} {ANIO}')
-          .replace(/\{DIA\}/g, String(lastDay))
-          .replace(/\{MES\}/g, monthLabel)
-          .replace(/\{ANIO\}/g, yearLabel);
+        let description = diarioDescriptions[period.key];
+        if (description == null || description === '') {
+          description = String(opts.diarioDescriptionTemplate || 'PROVISIÓN AL {DIA} DE {MES} {ANIO}')
+            .replace(/\{DIA\}/g, String(lastDay))
+            .replace(/\{MES\}/g, monthLabel)
+            .replace(/\{ANIO\}/g, yearLabel);
+        }
         row = buildDiarioBlock(diarioSheet, row, periodInvoices, finalNameByRfc, finalCuentaByRfc,
           diarioNumber, description, lastDay, monthLabel);
         diarioNumber++;
@@ -1073,7 +1101,7 @@
     normalizeName, tokenKey,
     loadExtraBase, saveExtraBase, loadRfcMap, saveRfcMap, loadPreferredRfcs, savePreferredRfcs,
     rebuildBaseIndexes, matchProvider, suggestReorderedName,
-    getWeeksForMonth, computePeriods, computeUnits,
+    getWeeksForMonth, computePeriods, computeUnits, MESES_LARGOS,
     parseWorkbookToInvoices, buildProviderList,
     generateOutput, padFolio
   };
@@ -1139,7 +1167,9 @@
     chkDiario: document.getElementById('chkDiario'),
     diarioOptions: document.getElementById('diarioOptions'),
     diarioStartNumber: document.getElementById('diarioStartNumber'),
-    diarioDescription: document.getElementById('diarioDescription')
+    diarioDescription: document.getElementById('diarioDescription'),
+    diarioPerPeriodWrap: document.getElementById('diarioPerPeriodWrap'),
+    diarioPerPeriodList: document.getElementById('diarioPerPeriodList')
   };
 
   let allInvoices = [];
@@ -1149,6 +1179,7 @@
   let selectedUnits = new Set();
   let periodMode = 'quincena';
   let splitByProvider = false;
+  const diarioDescByPeriod = new Map();
 
   const money = (n) => (n || 0).toLocaleString('es-MX', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
 
@@ -1375,6 +1406,7 @@
     if (!units.length) {
       els.periodsBody.innerHTML = `<tr><td colspan="4" class="status-line" style="padding:14px;">No hay periodos con facturas de los proveedores seleccionados.</td></tr>`;
       updateUnitsCount();
+      if (els.chkDiario.checked) renderDiarioPerPeriod();
       return;
     }
     els.periodsBody.innerHTML = units.map((u, i) => `
@@ -1407,6 +1439,7 @@
       else cell.textContent = '—';
     });
     updateUnitsCount();
+    if (els.chkDiario.checked) renderDiarioPerPeriod();
   }
 
   function updateUnitsCount() {
@@ -1454,8 +1487,74 @@
     });
   }
 
+  /* ---------------- paso 4: descripciones de Diario por periodo ---------------- */
+  function getDiarioPeriods() {
+    const map = new Map();
+    units.forEach(u => {
+      if (!selectedUnits.has(u.key)) return;
+      if (!map.has(u.periodKey)) {
+        map.set(u.periodKey, { periodKey: u.periodKey, start: u.start, end: u.end, label: u.periodLabel });
+      }
+    });
+    return [...map.values()].sort((a, b) => a.start - b.start);
+  }
+
+  function defaultDescriptionFor(period) {
+    const lastDay = period.end.getUTCDate();
+    const monthLabel = T.MESES_LARGOS[period.end.getUTCMonth()];
+    const yearLabel = String(period.end.getUTCFullYear());
+    const template = els.diarioDescription.value || 'PROVISIÓN AL {DIA} DE {MES} {ANIO}';
+    return template
+      .replace(/\{DIA\}/g, String(lastDay))
+      .replace(/\{MES\}/g, monthLabel)
+      .replace(/\{ANIO\}/g, yearLabel);
+  }
+
+  function renderDiarioPerPeriod() {
+    const diarioPeriods = getDiarioPeriods();
+    if (!diarioPeriods.length) {
+      els.diarioPerPeriodWrap.style.display = 'none';
+      els.diarioPerPeriodList.innerHTML = '';
+      return;
+    }
+    els.diarioPerPeriodWrap.style.display = 'block';
+
+    const currentKeys = new Set(diarioPeriods.map(p => p.periodKey));
+    for (const key of [...diarioDescByPeriod.keys()]) {
+      if (!currentKeys.has(key)) diarioDescByPeriod.delete(key);
+    }
+    diarioPeriods.forEach(p => {
+      if (!diarioDescByPeriod.has(p.periodKey)) diarioDescByPeriod.set(p.periodKey, defaultDescriptionFor(p));
+    });
+
+    els.diarioPerPeriodList.innerHTML = diarioPeriods.map(p => `
+      <div class="diario-period-row">
+        <span class="diario-period-label">${escapeHtml(p.label)}</span>
+        <input type="text" data-period-key="${escapeHtml(p.periodKey)}" value="${escapeHtml(diarioDescByPeriod.get(p.periodKey))}">
+        <button type="button" data-reset-key="${escapeHtml(p.periodKey)}" title="Volver a la plantilla">↺</button>
+      </div>
+    `).join('');
+
+    els.diarioPerPeriodList.querySelectorAll('input[data-period-key]').forEach(input => {
+      input.addEventListener('input', () => {
+        diarioDescByPeriod.set(input.dataset.periodKey, input.value);
+      });
+    });
+    els.diarioPerPeriodList.querySelectorAll('button[data-reset-key]').forEach(btn => {
+      btn.addEventListener('click', () => {
+        const p = diarioPeriods.find(x => x.periodKey === btn.dataset.resetKey);
+        if (!p) return;
+        const fresh = defaultDescriptionFor(p);
+        diarioDescByPeriod.set(p.periodKey, fresh);
+        const input = els.diarioPerPeriodList.querySelector(`input[data-period-key="${CSS.escape(p.periodKey)}"]`);
+        if (input) input.value = fresh;
+      });
+    });
+  }
+
   els.chkDiario.addEventListener('change', () => {
     els.diarioOptions.classList.toggle('open', els.chkDiario.checked);
+    if (els.chkDiario.checked) renderDiarioPerPeriod();
   });
 
   /* ---------------- paso 4: generar ---------------- */
@@ -1473,6 +1572,8 @@
     els.generateStatus.className = 'status-line';
     els.generateStatus.innerHTML = '<span class="spinner"></span>Generando archivo…';
     try {
+      const diarioDescriptions = {};
+      diarioDescByPeriod.forEach((v, k) => { diarioDescriptions[k] = v; });
       const result = await T.generateOutput({
         invoices: allInvoices,
         selectedRfcs: selected,
@@ -1483,6 +1584,7 @@
         includeDiario: els.chkDiario.checked,
         diarioStartNumber: els.diarioStartNumber.value.trim(),
         diarioDescriptionTemplate: els.diarioDescription.value,
+        diarioDescriptions,
         onProgress: (i, total, name) => {
           els.generateStatus.innerHTML = `<span class="spinner"></span>Generando hoja ${name} (${i}/${total})…`;
         }
