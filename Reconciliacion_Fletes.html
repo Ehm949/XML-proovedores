@@ -726,6 +726,43 @@
     return -1;
   }
 
+  // Convierte cualquier representación de fecha (Date, número de serie de Excel, o texto)
+  // a un Date en UTC puro (medianoche), sin depender jamás de la hora local del navegador.
+  function parseDateSafe(raw) {
+    if (raw == null || raw === '') return null;
+
+    if (raw instanceof Date) {
+      if (isNaN(raw.getTime())) return null;
+      return new Date(Date.UTC(raw.getUTCFullYear(), raw.getUTCMonth(), raw.getUTCDate()));
+    }
+
+    if (typeof raw === 'number') {
+      const ms = Math.round((raw - 25569) * 86400 * 1000);
+      const d = new Date(ms);
+      if (isNaN(d.getTime())) return null;
+      return new Date(Date.UTC(d.getUTCFullYear(), d.getUTCMonth(), d.getUTCDate()));
+    }
+
+    if (typeof raw === 'string') {
+      const s = raw.trim();
+      // ISO: AAAA-MM-DD (con o sin hora)
+      let m = s.match(/^(\d{4})-(\d{2})-(\d{2})/);
+      if (m) return new Date(Date.UTC(Number(m[1]), Number(m[2]) - 1, Number(m[3])));
+      // DD/MM/AAAA (formato usual en México)
+      m = s.match(/^(\d{1,2})\/(\d{1,2})\/(\d{4})$/);
+      if (m) return new Date(Date.UTC(Number(m[3]), Number(m[2]) - 1, Number(m[1])));
+      // último recurso: parseo nativo, pero solo se usa la fecha calendario que muestra,
+      // nunca la hora, para no arrastrar el desfase de huso horario del navegador.
+      const native = new Date(s);
+      if (!isNaN(native.getTime())) {
+        return new Date(Date.UTC(native.getFullYear(), native.getMonth(), native.getDate()));
+      }
+      return null;
+    }
+
+    return null;
+  }
+
   function parseWorkbookToInvoices(workbook) {
     let best = null;
     for (const sheetName of workbook.SheetNames) {
@@ -742,16 +779,15 @@
     for (const h of REQUIRED_HEADERS) idx[h] = header.indexOf(h);
 
     const invoices = [];
+    let skippedNoStatus = 0;
+    let skippedBadDate = 0;
     for (let r = headerRowIdx + 1; r < arr.length; r++) {
       const row = arr[r];
       if (!row) continue;
       const estatus = row[idx['Estatus']];
-      if (!estatus) continue;
-      const fechaRaw = row[idx['Emisión']];
-      let fecha = null;
-      if (fechaRaw instanceof Date) fecha = fechaRaw;
-      else if (typeof fechaRaw === 'number') fecha = new Date(Math.round((fechaRaw - 25569) * 86400 * 1000));
-      else if (typeof fechaRaw === 'string' && fechaRaw) fecha = new Date(fechaRaw);
+      if (!estatus) { skippedNoStatus++; continue; }
+      const fecha = parseDateSafe(row[idx['Emisión']]);
+      if (!fecha) { skippedBadDate++; continue; }
       invoices.push({
         estatus: String(estatus).trim(),
         uuid: row[idx['UUID']],
@@ -764,7 +800,9 @@
         isrret: Number(row[idx['ISR Retenido']]) || 0
       });
     }
-    return invoices.filter(i => i.estatus.toLowerCase() === 'vigente' && i.fecha && i.rfc);
+    const result = invoices.filter(i => i.estatus.toLowerCase() === 'vigente' && i.fecha && i.rfc);
+    result.warnings = { skippedBadDate };
+    return result;
   }
 
   /* ---------------- agrupar proveedores ---------------- */
@@ -1207,8 +1245,12 @@
         if (!allInvoices.length) {
           throw new Error('No se encontraron facturas vigentes en el archivo.');
         }
-        els.parseStatus.textContent = `${allInvoices.length} facturas vigentes encontradas.`;
-        els.parseStatus.className = 'status-line ok';
+        const badDates = (allInvoices.warnings && allInvoices.warnings.skippedBadDate) || 0;
+        const warnMsg = badDates
+          ? ` ⚠ ${badDates} fila(s) se omitieron porque no se les pudo leer la fecha — revísalas en el archivo original.`
+          : '';
+        els.parseStatus.textContent = `${allInvoices.length} facturas vigentes encontradas.${warnMsg}`;
+        els.parseStatus.className = badDates ? 'status-line error' : 'status-line ok';
         onParsed();
       } catch (err) {
         els.parseStatus.textContent = 'Error: ' + err.message;
