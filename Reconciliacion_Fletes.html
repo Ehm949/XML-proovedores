@@ -525,6 +525,21 @@
     return padded.slice(-6);
   }
 
+  // Si la factura no trae folio en el archivo original, se usan los últimos 6
+  // caracteres alfanuméricos del UUID como folio sustituto.
+  function folioFromUuid(uuid) {
+    const clean = String(uuid == null ? '' : uuid).replace(/[^A-Za-z0-9]/g, '');
+    if (!clean) return '';
+    return clean.slice(-6).toUpperCase();
+  }
+
+  function resolveFolio(folioRaw, uuid) {
+    const s = String(folioRaw == null ? '' : folioRaw).trim();
+    if (s !== '') return { folio: s, fromUuid: false };
+    const fromUuid = folioFromUuid(uuid);
+    return { folio: fromUuid, fromUuid: fromUuid !== '' };
+  }
+
   /* ---------------- BASE combinado (embebido + extra local) ---------------- */
   function loadExtraBase() {
     try { return JSON.parse(localStorage.getItem(LS_KEYS.extraBase) || '[]'); }
@@ -788,10 +803,13 @@
       if (!estatus) { skippedNoStatus++; continue; }
       const fecha = parseDateSafe(row[idx['Emisión']]);
       if (!fecha) { skippedBadDate++; continue; }
+      const uuidVal = row[idx['UUID']];
+      const folioInfo = resolveFolio(row[idx['Folio']], uuidVal);
       invoices.push({
         estatus: String(estatus).trim(),
-        uuid: row[idx['UUID']],
-        folio: row[idx['Folio']],
+        uuid: uuidVal,
+        folio: folioInfo.folio,
+        folioFromUuid: folioInfo.fromUuid,
         fecha: fecha,
         rfc: row[idx['Emisor RFC']] ? String(row[idx['Emisor RFC']]).trim() : '',
         nombre: row[idx['Emisor Nombre']] ? String(row[idx['Emisor Nombre']]).trim() : '',
@@ -801,7 +819,7 @@
       });
     }
     const result = invoices.filter(i => i.estatus.toLowerCase() === 'vigente' && i.fecha && i.rfc);
-    result.warnings = { skippedBadDate };
+    result.warnings = { skippedBadDate, folioFromUuid: result.filter(i => i.folioFromUuid).length };
     return result;
   }
 
@@ -976,12 +994,14 @@
     sheet.cell('F' + r).value(round2(sumSubtotal));
     r++;
 
-    sheet.cell('B' + r).value(ACCT_ISRRET);
-    sheet.cell('C' + r).value(0);
-    sheet.cell('D' + r).value(`${monthLabel} ISR RETENIDO`);
-    sheet.cell('E' + r).value(1);
-    sheet.cell('G' + r).value(round2(sumIsrRet));
-    r++;
+    if (round2(sumIsrRet) !== 0) {
+      sheet.cell('B' + r).value(ACCT_ISRRET);
+      sheet.cell('C' + r).value(0);
+      sheet.cell('D' + r).value(`${monthLabel} ISR RETENIDO`);
+      sheet.cell('E' + r).value(1);
+      sheet.cell('G' + r).value(round2(sumIsrRet));
+      r++;
+    }
 
     sheet.cell('B' + r).value(ACCT_IVAFACT);
     sheet.cell('C' + r).value(0);
@@ -1246,10 +1266,14 @@
           throw new Error('No se encontraron facturas vigentes en el archivo.');
         }
         const badDates = (allInvoices.warnings && allInvoices.warnings.skippedBadDate) || 0;
+        const folioUuid = (allInvoices.warnings && allInvoices.warnings.folioFromUuid) || 0;
         const warnMsg = badDates
           ? ` ⚠ ${badDates} fila(s) se omitieron porque no se les pudo leer la fecha — revísalas en el archivo original.`
           : '';
-        els.parseStatus.textContent = `${allInvoices.length} facturas vigentes encontradas.${warnMsg}`;
+        const folioMsg = folioUuid
+          ? ` · ${folioUuid} sin folio: se usaron los últimos 6 caracteres del UUID.`
+          : '';
+        els.parseStatus.textContent = `${allInvoices.length} facturas vigentes encontradas.${folioMsg}${warnMsg}`;
         els.parseStatus.className = badDates ? 'status-line error' : 'status-line ok';
         onParsed();
       } catch (err) {
