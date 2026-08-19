@@ -239,11 +239,7 @@
         <label for="etiquetaBanco">Etiqueta banco (H3)</label>
         <input type="text" id="etiquetaBanco" value="BBVA 815">
       </div>
-      <label class="toggle-row">
-        <input type="checkbox" id="chkRemisiones">
-        <span>Usar también las filas tipo <b>"Remisión"</b> de pagos aplicados
-          <span class="status-line">(en tu ejemplo se ignoran; se usan solo las "Factura")</span></span>
-      </label>
+      <div class="status-line">Solo se toman en cuenta los pagos tipo <b>"Factura"</b>; las remisiones se ignoran.</div>
     </div>
   </div>
 
@@ -606,12 +602,12 @@
   // empieza el siguiente. Así, 3 facturas de $151,380 con importe $151,380 dan
   // 3 depósitos distintos, mientras que 4 facturas que suman $489,800.72 con ese
   // mismo importe dan un solo depósito repartido.
-  function groupPagos(pagos, bank, useRemisiones) {
+  function groupPagos(pagos, bank) {
     const buckets = new Map();
     for (const p of pagos) {
       if (bank && p.cuenta !== bank) continue;
-      const esFactura = norm(p.tipo).indexOf('FACTURA') === 0;
-      if (!esFactura && !useRemisiones) continue;
+      // Regla fija: solo pagos tipo "Factura". Las remisiones nunca se usan.
+      if (norm(p.tipo).indexOf('FACTURA') !== 0) continue;
       const key = [p.cuenta, dkey(p.fecha), norm(p.razon), p.importe.toFixed(2)].join('|');
       if (!buckets.has(key)) buckets.set(key, []);
       buckets.get(key).push(p);
@@ -928,7 +924,6 @@
       parseStatus: $('parseStatus'), summaryGrid: $('summaryGrid'),
       bankAcct: $('bankAcct'), bankHint: $('bankHint'), tolerancia: $('tolerancia'),
       empresa: $('empresa'), titulo: $('titulo'), etiquetaBanco: $('etiquetaBanco'),
-      chkRemisiones: $('chkRemisiones'),
       searchBox: $('searchBox'), fDesde: $('fDesde'), fHasta: $('fHasta'),
       btnAll: $('btnAll'), btnNone: $('btnNone'), btnOnlyMatched: $('btnOnlyMatched'),
       selCount: $('selCount'), depBody: $('depBody'),
@@ -1011,7 +1006,7 @@
       if (!parsed.dep) return;
       const bank = els.bankAcct.value.trim();
       const tol = parseFloat(els.tolerancia.value) || 3;
-      const groups = T.groupPagos(parsed.pag.pagos, bank, els.chkRemisiones.checked);
+      const groups = T.groupPagos(parsed.pag.pagos, bank, false);
       els.bankHint.textContent = `${groups.length} pago(s) de esta cuenta · hoja se llamará "${bank.slice(-3) || '?'}"`;
       const out = T.matchDeposits(parsed.dep.deposits, groups, parsed.ven.ventas, { tolerancia: tol });
       results = out.results;
@@ -1026,7 +1021,6 @@
     }
 
     ['bankAcct', 'tolerancia'].forEach(id => $(id).addEventListener('input', debounce(recompute, 350)));
-    els.chkRemisiones.addEventListener('change', recompute);
     function debounce(fn, ms) { let t; return () => { clearTimeout(t); t = setTimeout(fn, ms); }; }
 
     function renderSummary() {
