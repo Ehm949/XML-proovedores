@@ -600,26 +600,44 @@
   }
 
   /* ---------------- agrupar pagos aplicados ---------------- */
-  // Cada grupo = un depósito. Las filas que comparten cuenta+fecha+cliente+"importe
-  // aplicado" son un mismo depósito repartido entre varias facturas.
+  // Un mismo cliente puede tener VARIOS depósitos del mismo monto el mismo día.
+  // Dentro de cada bucket (cuenta+fecha+cliente+importe) se van acumulando las
+  // facturas hasta completar el "importe aplicado": ahí se cierra un depósito y
+  // empieza el siguiente. Así, 3 facturas de $151,380 con importe $151,380 dan
+  // 3 depósitos distintos, mientras que 4 facturas que suman $489,800.72 con ese
+  // mismo importe dan un solo depósito repartido.
   function groupPagos(pagos, bank, useRemisiones) {
-    const groups = new Map();
+    const buckets = new Map();
     for (const p of pagos) {
       if (bank && p.cuenta !== bank) continue;
       const esFactura = norm(p.tipo).indexOf('FACTURA') === 0;
       if (!esFactura && !useRemisiones) continue;
       const key = [p.cuenta, dkey(p.fecha), norm(p.razon), p.importe.toFixed(2)].join('|');
-      if (!groups.has(key)) {
-        groups.set(key, {
-          key, cuenta: p.cuenta, fecha: p.fecha, razon: p.razon,
-          importe: p.importe, tipo: p.tipo, facturas: []
-        });
-      }
-      groups.get(key).facturas.push(p);
+      if (!buckets.has(key)) buckets.set(key, []);
+      buckets.get(key).push(p);
     }
-    const out = [...groups.values()];
-    for (const g of out) {
-      g.facturas.sort((a, b) => String(a.nofact).localeCompare(String(b.nofact), undefined, { numeric: true }));
+
+    const out = [];
+    const EPS = 0.02;
+    for (const [key, rows] of buckets.entries()) {
+      rows.sort((a, b) => String(a.nofact).localeCompare(String(b.nofact), undefined, { numeric: true }));
+      const importe = rows[0].importe;
+      let cur = [], sum = 0, part = 0;
+      const close = () => {
+        if (!cur.length) return;
+        out.push({
+          key: key + '#' + (part++),
+          cuenta: cur[0].cuenta, fecha: cur[0].fecha, razon: cur[0].razon,
+          importe: importe, tipo: cur[0].tipo, facturas: cur
+        });
+        cur = []; sum = 0;
+      };
+      for (const p of rows) {
+        cur.push(p);
+        sum += p.aplicado;
+        if (sum >= importe - EPS) close();
+      }
+      close(); // resto que no alcanzó a completar el importe
     }
     return out;
   }
