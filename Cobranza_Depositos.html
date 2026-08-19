@@ -1,0 +1,1141 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Cobranza — Aplicación de Depósitos — Sol Firma</title>
+<script>
+  function loadScriptFallback(urls) {
+    return new Promise((resolve, reject) => {
+      let i = 0;
+      function tryNext() {
+        if (i >= urls.length) { reject(new Error('No se pudo cargar: ' + urls.join(', '))); return; }
+        const url = urls[i++];
+        const s = document.createElement('script');
+        s.src = url;
+        s.onload = () => resolve(url);
+        s.onerror = () => tryNext();
+        document.head.appendChild(s);
+      }
+      tryNext();
+    });
+  }
+  window.LIBS_READY = Promise.all([
+    loadScriptFallback([
+      'https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js',
+      'https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js',
+      'https://unpkg.com/xlsx@0.18.5/dist/xlsx.full.min.js'
+    ]),
+    loadScriptFallback([
+      'https://cdn.jsdelivr.net/npm/xlsx-populate@1.21.0/browser/xlsx-populate.min.js',
+      'https://unpkg.com/xlsx-populate@1.21.0/browser/xlsx-populate.min.js',
+      'https://cdnjs.cloudflare.com/ajax/libs/xlsx-populate/1.21.0/xlsx-populate.min.js'
+    ])
+  ]).then(() => { window.LIBS_OK = true; return true; })
+    .catch((e) => { console.error('Error cargando librerías:', e); window.LIBS_OK = false; return false; });
+</script>
+<style>
+  :root{
+    --bg:#0c1522; --bg-alt:#0f1c2d; --card:#142338; --card-2:#182a44;
+    --border:#24374f; --border-soft:#1c2e46; --text:#e7edf5; --text-dim:#93a5bd;
+    --text-faint:#5f7089; --amber:#d9a441; --amber-soft:#f0c877;
+    --green:#4caf7d; --red:#d9705f; --blue:#3fa8d8;
+    --mono:"SF Mono","Cascadia Code",Consolas,monospace;
+  }
+  *{box-sizing:border-box;}
+  html,body{margin:0;padding:0;}
+  body{
+    background:radial-gradient(circle at 15% 0%, #122032 0%, var(--bg) 45%) fixed;
+    color:var(--text); line-height:1.5; min-height:100vh;
+    font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,Helvetica,Arial,sans-serif;
+  }
+  .wrap{max-width:1180px;margin:0 auto;padding:40px 24px 90px;}
+  header.top{display:flex;align-items:baseline;justify-content:space-between;gap:16px;
+    border-bottom:1px solid var(--border);padding-bottom:22px;margin-bottom:34px;flex-wrap:wrap;}
+  header.top .brand{display:flex;align-items:baseline;gap:14px;}
+  header.top .brand .mark{font-family:var(--mono);color:var(--amber);font-size:13px;
+    letter-spacing:.12em;border:1px solid var(--amber);padding:3px 8px;border-radius:3px;}
+  header.top h1{font-size:21px;font-weight:600;margin:0;letter-spacing:-0.01em;}
+  header.top p{color:var(--text-dim);margin:4px 0 0;font-size:13.5px;}
+
+  .crossnav{display:flex;gap:8px;margin-bottom:22px;flex-wrap:wrap;}
+  .crossnav a{font-size:12.5px;color:var(--text-dim);text-decoration:none;border:1px solid var(--border);
+    border-radius:20px;padding:6px 14px;font-family:var(--mono);
+    transition:color .12s,border-color .12s,background .12s;}
+  .crossnav a:hover{color:var(--text);border-color:var(--amber);background:rgba(217,164,65,.06);}
+  .crossnav a.active{color:var(--bg);background:var(--amber);border-color:var(--amber);font-weight:600;}
+
+  .step{background:var(--card);border:1px solid var(--border);border-radius:10px;
+    margin-bottom:22px;overflow:hidden;}
+  .step.disabled{opacity:.42;pointer-events:none;}
+  .step-head{display:flex;align-items:center;gap:14px;padding:18px 22px;
+    border-bottom:1px solid var(--border-soft);background:linear-gradient(180deg,var(--card-2),var(--card));}
+  .step-num{font-family:var(--mono);font-size:12px;color:var(--bg);background:var(--amber);
+    width:24px;height:24px;border-radius:50%;display:flex;align-items:center;justify-content:center;
+    flex-shrink:0;font-weight:700;}
+  .step-head h2{font-size:15.5px;margin:0;font-weight:600;}
+  .step-head .sub{color:var(--text-dim);font-size:12.5px;margin-top:2px;}
+  .step-body{padding:22px;}
+
+  .drops{display:grid;grid-template-columns:repeat(auto-fit,minmax(260px,1fr));gap:14px;}
+  .dropzone{border:1.5px dashed var(--border);border-radius:8px;padding:20px 16px;text-align:center;
+    cursor:pointer;background:var(--bg-alt);transition:border-color .15s,background .15s;display:block;}
+  .dropzone:hover,.dropzone.drag{border-color:var(--amber);background:#14243a;}
+  .dropzone.loaded{border-style:solid;border-color:var(--green);}
+  .dropzone input{display:none;}
+  .dropzone .icon{font-size:20px;margin-bottom:6px;color:var(--amber);}
+  .dropzone .label{font-size:13.5px;color:var(--text);font-weight:600;}
+  .dropzone .hint{font-size:11.5px;color:var(--text-faint);margin-top:4px;}
+  .dropzone .fname{font-family:var(--mono);font-size:11.5px;color:var(--amber-soft);
+    margin-top:8px;word-break:break-all;}
+
+  .summary-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(140px,1fr));gap:14px;margin-bottom:20px;}
+  .metric{background:var(--bg-alt);border:1px solid var(--border-soft);border-radius:8px;padding:14px 16px;}
+  .metric .n{font-family:var(--mono);font-size:20px;font-weight:700;color:var(--amber-soft);}
+  .metric .n.ok{color:var(--green);} .metric .n.warn{color:var(--red);}
+  .metric .l{font-size:11.5px;color:var(--text-dim);margin-top:3px;text-transform:uppercase;letter-spacing:.04em;}
+
+  .config-row{display:flex;align-items:center;gap:14px;flex-wrap:wrap;margin-bottom:14px;}
+  .config-row label{font-size:13px;color:var(--text-dim);min-width:150px;}
+  .config-row input[type=text]{background:var(--bg-alt);border:1px solid var(--border);color:var(--text);
+    padding:8px 12px;border-radius:6px;font-family:var(--mono);font-size:13px;}
+  .config-row input[type=text]:focus{outline:none;border-color:var(--amber);}
+  .config-row input.wide{min-width:320px;font-family:inherit;}
+
+  .toggle-row{display:flex;align-items:center;gap:10px;cursor:pointer;font-size:13.5px;padding:4px 0;margin-bottom:10px;}
+  .toggle-row input{width:16px;height:16px;accent-color:var(--amber);cursor:pointer;}
+
+  .btn{background:var(--amber);color:#1a1305;border:none;font-weight:600;padding:9px 16px;
+    border-radius:6px;font-size:13px;cursor:pointer;transition:filter .12s,transform .12s;}
+  .btn:hover{filter:brightness(1.08);} .btn:active{transform:translateY(1px);}
+  .btn.ghost{background:transparent;color:var(--text-dim);border:1px solid var(--border);}
+  .btn.ghost:hover{color:var(--text);border-color:var(--amber);}
+  .btn:disabled{opacity:.4;cursor:not-allowed;filter:none;}
+  .btn.big{padding:13px 26px;font-size:14.5px;} .btn.small{padding:5px 10px;font-size:11.5px;}
+
+  .toolbar{display:flex;gap:10px;flex-wrap:wrap;align-items:center;margin-bottom:14px;}
+  .toolbar input[type=text]{background:var(--bg-alt);border:1px solid var(--border);color:var(--text);
+    padding:8px 12px;border-radius:6px;font-size:13px;min-width:200px;}
+  .toolbar input[type=text]:focus{outline:none;border-color:var(--amber);}
+
+  table.dt{width:100%;border-collapse:collapse;font-size:12.5px;}
+  table.dt th{text-align:left;color:var(--text-dim);font-weight:600;font-size:11px;
+    text-transform:uppercase;letter-spacing:.04em;padding:8px 10px;border-bottom:1px solid var(--border);
+    position:sticky;top:0;background:var(--card);z-index:1;}
+  table.dt td{padding:8px 10px;border-bottom:1px solid var(--border-soft);vertical-align:middle;}
+  table.dt tr:hover td{background:rgba(217,164,65,.04);}
+  .mono{font-family:var(--mono);font-size:12px;}
+  .amt{font-family:var(--mono);text-align:right;display:block;}
+  .badge{font-size:10.5px;padding:3px 7px;border-radius:20px;font-weight:600;display:inline-block;white-space:nowrap;}
+  .badge.pa{background:rgba(76,175,125,.14);color:var(--green);border:1px solid rgba(76,175,125,.35);}
+  .badge.vm{background:rgba(63,168,216,.14);color:var(--blue);border:1px solid rgba(63,168,216,.35);}
+  .badge.na{background:rgba(217,112,95,.14);color:var(--red);border:1px solid rgba(217,112,95,.35);}
+  .table-scroll{max-height:460px;overflow-y:auto;border:1px solid var(--border-soft);border-radius:8px;}
+
+  .footer-actions{display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:14px;}
+  .status-line{font-size:12.5px;color:var(--text-dim);}
+  .status-line.error{color:var(--red);} .status-line.ok{color:var(--green);}
+
+  ::-webkit-scrollbar{width:9px;height:9px;}
+  ::-webkit-scrollbar-track{background:var(--bg-alt);}
+  ::-webkit-scrollbar-thumb{background:var(--border);border-radius:5px;}
+  ::-webkit-scrollbar-thumb:hover{background:var(--text-faint);}
+
+  .spinner{width:14px;height:14px;border-radius:50%;border:2px solid rgba(255,255,255,.25);
+    border-top-color:#1a1305;display:inline-block;animation:spin .7s linear infinite;
+    margin-right:7px;vertical-align:-2px;}
+  @keyframes spin{to{transform:rotate(360deg);}}
+</style>
+</head>
+<body>
+<div class="wrap">
+  <nav class="crossnav">
+    <a href="Reconciliacion_Fletes.html">⇢ Reconciliación de Fletes</a>
+    <a href="Registro_Facturas_SAT.html">⇢ Registro de Facturas SAT</a>
+    <a href="Cobranza_Depositos.html" class="active">⇢ Cobranza / Depósitos</a>
+  </nav>
+
+  <header class="top">
+    <div class="brand">
+      <span class="mark">SFN</span>
+      <div>
+        <h1>Cobranza — Aplicación de Depósitos</h1>
+        <p>Sol Firma de Negocios · Cruce de depósitos contra pagos aplicados y mostrador</p>
+      </div>
+    </div>
+    <div style="color:var(--text-faint);font-size:12px;max-width:280px;text-align:right;">
+      Todo se procesa en tu navegador. Nada se sube a ningún servidor.
+    </div>
+  </header>
+
+  <div id="libBanner" class="status-line" style="margin-bottom:18px;display:none;"></div>
+
+  <!-- PASO 1 -->
+  <div class="step" id="step1">
+    <div class="step-head">
+      <div class="step-num">1</div>
+      <div>
+        <h2>Cargar los tres archivos</h2>
+        <div class="sub">Depósitos del banco, pagos aplicados y ventas de mostrador</div>
+      </div>
+    </div>
+    <div class="step-body">
+      <div class="drops">
+        <label class="dropzone" id="dzDep">
+          <input type="file" id="fiDep" accept=".xlsx,.xls">
+          <div class="icon">⇪</div>
+          <div class="label">Depósitos</div>
+          <div class="hint">FECHA · CONCEPTO · CUENTA CLIENTE · DEPOSITO</div>
+          <div class="fname" id="fnDep"></div>
+        </label>
+        <label class="dropzone" id="dzPag">
+          <input type="file" id="fiPag" accept=".xlsx,.xls">
+          <div class="icon">⇪</div>
+          <div class="label">Pagos aplicados</div>
+          <div class="hint">no cuenta · razon social · importe aplicado · aplicado</div>
+          <div class="fname" id="fnPag"></div>
+        </label>
+        <label class="dropzone" id="dzVen">
+          <input type="file" id="fiVen" accept=".xlsx,.xls">
+          <div class="icon">⇪</div>
+          <div class="label">Ventas de mostrador</div>
+          <div class="hint">No. Fact. · Total</div>
+          <div class="fname" id="fnVen"></div>
+        </label>
+      </div>
+      <div class="status-line" id="parseStatus" style="margin-top:12px;"></div>
+    </div>
+  </div>
+
+  <!-- PASO 2 -->
+  <div class="step disabled" id="step2">
+    <div class="step-head">
+      <div class="step-num">2</div>
+      <div>
+        <h2>Configuración</h2>
+        <div class="sub">Cuenta bancaria a procesar y reglas de búsqueda</div>
+      </div>
+    </div>
+    <div class="step-body">
+      <div class="config-row">
+        <label for="bankAcct">Cuenta bancaria</label>
+        <input type="text" id="bankAcct" value="0451337815" maxlength="20">
+        <span class="status-line" id="bankHint"></span>
+      </div>
+      <div class="config-row">
+        <label for="tolerancia">Tolerancia (± pesos)</label>
+        <input type="text" id="tolerancia" value="3" maxlength="6" style="width:80px;">
+        <span class="status-line">Diferencia máxima permitida entre el depósito y el pago.</span>
+      </div>
+      <div class="config-row">
+        <label for="empresa">Encabezado (A1)</label>
+        <input type="text" id="empresa" class="wide" value="SOL FIRMA DE NEGOCIOS SA DE CV">
+      </div>
+      <div class="config-row">
+        <label for="titulo">Título (A2)</label>
+        <input type="text" id="titulo" class="wide" value="">
+      </div>
+      <div class="config-row">
+        <label for="etiquetaBanco">Etiqueta banco (H3)</label>
+        <input type="text" id="etiquetaBanco" value="BBVA 815">
+      </div>
+      <label class="toggle-row">
+        <input type="checkbox" id="chkRemisiones">
+        <span>Usar también las filas tipo <b>"Remisión"</b> de pagos aplicados
+          <span class="status-line">(en tu ejemplo se ignoran; se usan solo las "Factura")</span></span>
+      </label>
+    </div>
+  </div>
+
+  <!-- PASO 3 -->
+  <div class="step disabled" id="step3">
+    <div class="step-head">
+      <div class="step-num">3</div>
+      <div>
+        <h2>Depósitos a incluir</h2>
+        <div class="sub">Palomea los que quieres en la hoja; los que no cuadraron salen con "???"</div>
+      </div>
+    </div>
+    <div class="step-body">
+      <div class="summary-grid" id="summaryGrid"></div>
+      <div class="toolbar">
+        <input type="text" id="searchBox" placeholder="Buscar por concepto o monto…">
+        <input type="text" id="fDesde" placeholder="Desde dd/mm/aaaa" style="min-width:150px;">
+        <input type="text" id="fHasta" placeholder="Hasta dd/mm/aaaa" style="min-width:150px;">
+        <button class="btn ghost small" id="btnAll">Marcar todos</button>
+        <button class="btn ghost small" id="btnNone">Desmarcar todo</button>
+        <button class="btn ghost small" id="btnOnlyMatched">Solo los que cuadraron</button>
+        <span style="flex:1"></span>
+        <span class="status-line" id="selCount"></span>
+      </div>
+      <div class="table-scroll">
+        <table class="dt">
+          <thead>
+            <tr>
+              <th style="width:30px;"></th>
+              <th>Fecha</th>
+              <th>Concepto</th>
+              <th style="text-align:right;">Depósito</th>
+              <th>Origen</th>
+              <th>Cliente encontrado</th>
+              <th>Facturas</th>
+            </tr>
+          </thead>
+          <tbody id="depBody"></tbody>
+        </table>
+      </div>
+    </div>
+  </div>
+
+  <!-- PASO 4 -->
+  <div class="step disabled" id="step4">
+    <div class="step-head">
+      <div class="step-num">4</div>
+      <div>
+        <h2>Generar archivo</h2>
+        <div class="sub">Hoja del formato + copias de las 3 fuentes con lo usado marcado en azul</div>
+      </div>
+    </div>
+    <div class="step-body">
+      <div class="footer-actions">
+        <button class="btn big" id="btnGenerate">Generar archivo Excel</button>
+        <span class="status-line" id="genStatus"></span>
+      </div>
+    </div>
+  </div>
+</div>
+
+<script>
+  const CATALOG_DATA = [{"n": "CUENTAS POR COBRAR A CLIENTES", "c": "1120-0000-0000-0000"}, {"n": "MARTINEZ MERCADO MARIA LETICIA", "c": "1120-0001-0000-0000"}, {"n": "RIVERA ALDAMA JAVIER", "c": "1120-0002-0000-0000"}, {"n": "AGUILAR DIAZ SALVADOR", "c": "1120-0014-0000-0000"}, {"n": "MARTINEZ MERCADO CARLOS OCTAVIO", "c": "1120-0088-0000-0000"}, {"n": "FERRETERIA PORTALES SA DE CV", "c": "1120-0091-0000-0000"}, {"n": "ALARCON ALVARADO JUANA", "c": "1120-0122-0000-0000"}, {"n": "APC ADOQUIN Y PREFABRICADOS DE CONCRETO", "c": "1120-0201-0000-0000"}, {"n": "ADOCRETOS EL CISNE", "c": "1120-0202-0000-0000"}, {"n": "MOZO SERRANO ESTEBAN", "c": "1120-0204-0000-0000"}, {"n": "VENTAS DE MOSTRADOR", "c": "1120-0215-0000-0000"}, {"n": "LOMBARDO CONSTRUCCIONES, S.A. DE C.V.", "c": "1120-0217-0000-0000"}, {"n": "VIGUETAS Y BOVEDILLAS, S.A. DE C.V.", "c": "1120-0277-0000-0000"}, {"n": "DIAZ GARCIA MARIA ALEJANDRA", "c": "1120-0377-0000-0000"}, {"n": "BS PREFABRICADOS DE CONCRETO", "c": "1120-0385-0000-0000"}, {"n": "L. R. BOMBEO Y CONCRETO", "c": "1120-0387-0000-0000"}, {"n": "SEBASTIAN FUENTES PALACIOS", "c": "1120-0398-0000-0000"}, {"n": "ALAMBRES Y REFUERZOS DAC, S.A. DE C.V.", "c": "1120-0421-0000-0000"}, {"n": "OCG MAQUINARIA Y CONSTRUCCION, S.A. DE C.V.", "c": "1120-0424-0000-0000"}, {"n": "PROMOTORA DE EDIFICACIONES Y CONSTRUCCIO", "c": "1120-0427-0000-0000"}, {"n": "DOS GRUPO EMRPESARIAL SA DE CV", "c": "1120-0446-0000-0000"}, {"n": "MUNICIPIO DE ECATEPEC DE MORELOS.", "c": "1120-0488-0000-0000"}, {"n": "PREMEZCLADO EN SITIO, S.A. DE C.V.", "c": "1120-0502-0000-0000"}, {"n": "PREMEZCLADOS DE CEMENTOS MEXICANOS SA DE", "c": "1120-0516-0000-0000"}, {"n": "ADMIXTURE TECHNOLOGIES DE MEXICO SA DE C", "c": "1120-0534-0000-0000"}, {"n": "CONCRETO EN OBRA SA DE CV", "c": "1120-0536-0000-0000"}, {"n": "GRUPO  PREVI  SA DE CV", "c": "1120-0554-0000-0000"}, {"n": "SERVIMIL MEX  SA DE CV", "c": "1120-0559-0000-0000"}, {"n": "RENTAS Y SERVICIOS EN OBRA", "c": "1120-0560-0000-0000"}, {"n": "CONBECMA DE HIDALGO , SA DE CV", "c": "1120-0576-0000-0000"}, {"n": "MATERIALES FERST  SA DE CV", "c": "1120-0582-0000-0000"}, {"n": "NUÐO TORALES GERARDO", "c": "1120-0587-0000-0000"}, {"n": "GOBIERNO DE LA CIUDAD DE MEXICO", "c": "1120-0601-0000-0000"}, {"n": "GINEZ MOZO ERIBERTO", "c": "1120-0605-0000-0000"}, {"n": "PANASONIC DE MEXICO  SA DE CV", "c": "1120-0615-0000-0000"}, {"n": "CON KRETE DIVISION BOMBEO  SA DE CV", "c": "1120-0621-0000-0000"}, {"n": "HORMIGON EN SITIO  SA DE CV", "c": "1120-0649-0000-0000"}, {"n": "PENTAMERUS SERVICIOS Y CONSTRUCCIONES  S", "c": "1120-0664-0000-0000"}, {"n": "MUNICIPIO DE CHIMALHUACAN", "c": "1120-0686-0000-0000"}, {"n": "INOVACION BIENES RAICES, S.A. DE C.V.", "c": "1120-0692-0000-0000"}, {"n": "GRUPO COMERCIAL Y CONSTRUCTOR AGUA BLANCA, S.A. DE C.V.", "c": "1120-0695-0000-0000"}, {"n": "GRUPO ALFELI  SA DE CV", "c": "1120-0698-0000-0000"}, {"n": "VELAZQUEZ MENESES MARCO ANTONIO", "c": "1120-0711-0000-0000"}, {"n": "MUNICIPIO DE LA PAZ", "c": "1120-0712-0000-0000"}, {"n": "CONSTRUCCIONES JOIMSA  SA DE CV", "c": "1120-0717-0000-0000"}, {"n": "RAMCO CONCRETO PREMEZCLADO SA DE CV", "c": "1120-0725-0000-0000"}, {"n": "CONSTRUCTORA TEXCOCANA DE CALIDAD, S.A. DE C.V.", "c": "1120-0728-0000-0000"}, {"n": "TUBOS Y CONEXIONES FERREMAYOR  SA DE CV", "c": "1120-0733-0000-0000"}, {"n": "DESARROLLO LOGISTICO  SA DE CV", "c": "1120-0734-0000-0000"}, {"n": "CONSORCIO CONTINENTAL DE INFRAESTRUCTURA", "c": "1120-0744-0000-0000"}, {"n": "MOZO GINEZ JUAN", "c": "1120-0751-0000-0000"}, {"n": "CONSTRUCTORA JAQUENAVY, SA D E C V", "c": "1120-0757-0000-0000"}, {"n": "BASF MEXICANA, SA DE CV", "c": "1120-0769-0000-0000"}, {"n": "MONCAYO CEDILLO SA DE CV", "c": "1120-0779-0000-0000"}, {"n": "PRESLAM CONCRETOS, S.A. DE C.V.", "c": "1120-0787-0000-0000"}, {"n": "MACIAS ZACARIAS CARLOS", "c": "1120-0797-0000-0000"}, {"n": "CONSTRUCCIONES CONACSA, S.A. DE C.V.", "c": "1120-0799-0000-0000"}, {"n": "CMCO  SA DE CV", "c": "1120-0800-0000-0000"}, {"n": "COMERCIALIZADORA DE MATERIALES PARA EDIF", "c": "1120-0804-0000-0000"}, {"n": "CONCRETO SUPERIOR  SA DE CV", "c": "1120-0807-0000-0000"}, {"n": "AXA SEGUROS  SA DE CV", "c": "1120-0808-0000-0000"}, {"n": "CONCRETOS ALPHER  SA DE CV", "c": "1120-0812-0000-0000"}, {"n": "PARKS DESARROLLADORA SA DE CV", "c": "1120-0821-0000-0000"}, {"n": "PROMOMANIA CUARTEL GENERAL DE MARCAS  SC", "c": "1120-0829-0000-0000"}, {"n": "HERSA COMERCIALIZADORA Y CONSTRUCCIONES", "c": "1120-0830-0000-0000"}, {"n": "ROADCEM DE MEXICO, S. DE R.L. DE C.V.", "c": "1120-0832-0000-0000"}, {"n": "CORAZON URBANO", "c": "1120-0838-0000-0000"}, {"n": "GRUPO EMPRESARIAL FERTOGLEZ  SA DE CV", "c": "1120-0842-0000-0000"}, {"n": "BLOQUERA RYV, S.A. DE C.V.", "c": "1120-0843-0000-0000"}, {"n": "GIA RAMCO CONCRETOS SA DE CV", "c": "1120-0845-0000-0000"}, {"n": "CONSTRUCCIONES Y SERVICIOS VILLAHERMOSA", "c": "1120-0852-0000-0000"}, {"n": "ACCIONA INFRAESTRUCTURA MEXICO SA DE CV", "c": "1120-0864-0000-0000"}, {"n": "COMERCIALIZADORA Y DISTRIBUIDORA DE CONC", "c": "1120-0872-0000-0000"}, {"n": "XIMARCE GOURMET AND SERVICE SA DE CV", "c": "1120-0877-0000-0000"}, {"n": "AGUILAR ROJO HERIBERTO", "c": "1120-0884-0000-0000"}, {"n": "PROINFRA PROMOTORA DE INFRAESTRUCTURA, S.A. DE C.V.", "c": "1120-0889-0000-0000"}, {"n": "SPIRAL LOGISTICS SA DE CV", "c": "1120-0898-0000-0000"}, {"n": "IMPULSORA HABITACIONAL, S.A. DE C.V.", "c": "1120-0906-0000-0000"}, {"n": "INMOBILIARIA ANKAR, S.A. DE C.V.", "c": "1120-0909-0000-0000"}, {"n": "INMOBILIARIA Y CONSTRUCTORA JUGSA S.A. DE C.V.", "c": "1120-0910-0000-0000"}, {"n": "VINOS Y ALIMENTOS PLATA, S.A. DE C.V.", "c": "1120-0914-0000-0000"}, {"n": "OROZCO GONZALEZ MARIA DEL ROCIO", "c": "1120-0923-0000-0000"}, {"n": "SERVICIOS GASTRONOMICOS EL DESVAN SA DE", "c": "1120-0926-0000-0000"}, {"n": "FRUMECAR PANAMA SA", "c": "1120-0928-0000-0000"}, {"n": "ADMIXTURE TECHNOLOGIES DEL CENTRO, S.A. DE C.V.", "c": "1120-0929-0000-0000"}, {"n": "ABASTECEDORA DE MATERIALES MMW, S. DE R.L. DE C.V.", "c": "1120-0930-0000-0000"}, {"n": "MAGPIC CONSTRUCTOR SA DE CV", "c": "1120-0936-0000-0000"}, {"n": "CORDINADORA DE INMUEBLES INDUSTRIALES SA", "c": "1120-0938-0000-0000"}, {"n": "FLORES FIGUEROA JUAN JOSE", "c": "1120-0939-0000-0000"}, {"n": "CONSTRUCONCRETOS SA DE CV", "c": "1120-0942-0000-0000"}, {"n": "INTERNACIONAL PAPER EMPAQUES INDUSTRIALE", "c": "1120-0945-0000-0000"}, {"n": "CONCRETOS MOVILES ESPECIALES SA DE CV", "c": "1120-0946-0000-0000"}, {"n": "ORGANISMO PUBLICO DESCENTRALIZADO PARA L", "c": "1120-0952-0000-0000"}, {"n": "MARRUB DESARROLLOS PUBLICOS Y PRIVADOS S", "c": "1120-0957-0000-0000"}, {"n": "CEMOC SERVICIOS ESPECIALIZADOS S.A. DE C.V.", "c": "1120-0964-0000-0000"}, {"n": "MILLAN GONZALEZ ROSALBA", "c": "1120-0965-0000-0000"}, {"n": "RC FINANTIAL SERVICES SA DE CV", "c": "1120-0968-0000-0000"}, {"n": "AISLAMIENTOS Y FORROS INDUSTRIALES SA DE", "c": "1120-0969-0000-0000"}, {"n": "ESPIRITU SUAREZ MARIA LUISA", "c": "1120-0971-0000-0000"}, {"n": "EDUARDO SALCEDO RODRIGUEZ", "c": "1120-0972-0000-0000"}, {"n": "STROM BETON, S.A. DE C.V.", "c": "1120-0975-0000-0000"}, {"n": "IDEVSA CONSTRUCCIONES SA DE CV", "c": "1120-0977-0000-0000"}, {"n": "GRUPO CENTRO OCCIDENTE, S.A. DE C.V.", "c": "1120-0981-0000-0000"}, {"n": "RYE CONSULTORIA DIGITAL SA DE CV", "c": "1120-0986-0000-0000"}, {"n": "INNOVACIONES INTELIGENTES PARA LA CONSTRUCCION, S.A DE C.V.", "c": "1120-0987-0000-0000"}, {"n": "FONATUR OPERADORA PORTUARIA S.A. DE C.V.", "c": "1120-0990-0000-0000"}, {"n": "FONATUR TREN MAYA S.A. DE C.V.", "c": "1120-0990-0000-0000"}, {"n": "CONSTRUCCIONES BASALTO SA DE CV", "c": "1120-0991-0000-0000"}, {"n": "CORREA CORREA GEORGINA", "c": "1120-0993-0000-0000"}, {"n": "SANCHEZ SANTOS FELIPE FRANCISCO", "c": "1120-0996-0000-0000"}, {"n": "GRUPO JULUCA SA DE CV", "c": "1120-0999-0000-0000"}, {"n": "HAUS CADIZ S DE RL DE CV", "c": "1120-1000-0000-0000"}, {"n": "CONSTRUCTORA POLL SA DE CV", "c": "1120-1001-0000-0000"}, {"n": "GUTIERREZ QUINTANILLA MONICA", "c": "1120-1003-0000-0000"}, {"n": "Soluciones y Tecnologías Innovadoras S.A. de C.V.", "c": "1120-1009-0000-0000"}, {"n": "CONSORCIO CONSTRUCTOR TABASQUEÑO SA DE", "c": "1120-1013-0000-0000"}, {"n": "HAUS CALLE DIECINUEVE S DE RL DE CV", "c": "1120-1015-0000-0000"}, {"n": "CORPORATIVO DEQUIVAMED SA DE CV", "c": "1120-1019-0000-0000"}, {"n": "CONSORCIO EDIFICADOR Y CONSTRUCTOR NUÑEZ", "c": "1120-1020-0000-0000"}, {"n": "SERVICIOS MESOAMERICANOS SA DE CV", "c": "1120-1021-0000-0000"}, {"n": "DISPOSICION ARQUITECTONICA Y CONSTRUCTIV", "c": "1120-1023-0000-0000"}, {"n": "MACDOSA SA DE CV", "c": "1120-1024-0000-0000"}, {"n": "INGENIERIA Y CONSTRUCCION KAR SA DE CV", "c": "1120-1025-0000-0000"}, {"n": "ADMINISTRACION Y CONSTRUCTIBILIDAD SA DE", "c": "1120-1026-0000-0000"}, {"n": "CONSTRUCCIONES INMOBILIARIAS LARUS SA DE", "c": "1120-1030-0000-0000"}, {"n": "MARTINEZ SEGURA SERVANDO", "c": "1120-1031-0000-0000"}, {"n": "CONCRETERA TEXCOCANA SA DE CV", "c": "1120-1032-0000-0000"}, {"n": "CONCRETOS COESSA SA DE CV", "c": "1120-1033-0000-0000"}, {"n": "GAMI INGENIERIA E INSTALACIONES, S.A. DE C.V.", "c": "1120-1034-0000-0000"}, {"n": "DISTRIBUIDORA LA DULCE VIDA SA CV", "c": "1120-1037-0000-0000"}, {"n": "BRACSA CONSTRUCCIONES SA DE CV", "c": "1120-1040-0000-0000"}, {"n": "Grupo Empresarial Mixerplus", "c": "1120-1041-0000-0000"}, {"n": "HILARIO GARCIA ELIZONDO", "c": "1120-1042-0000-0000"}, {"n": "CONSTRUCCIONES Y ACABADOS DE ORIENTE SA", "c": "1120-1043-0000-0000"}, {"n": "MAYEN ANAYA GISELA", "c": "1120-1046-0000-0000"}, {"n": "CONSTRUCCIONES HESE S DE RL DE CV", "c": "1120-1047-0000-0000"}, {"n": "VELAZQUEZ ORTEGA FRANCISCO JAVIER", "c": "1120-1049-0000-0000"}, {"n": "GRUPO CONSTRUCTOR DE VIVIENDAS MANALO DEL SUR, S.A. DE C.V.", "c": "1120-1053-0000-0000"}, {"n": "RODRIGUEZ ARMENTA ARTURO GUSTAVO", "c": "1120-1057-0000-0000"}, {"n": "COMERCIALIZADORA QUINTO MILENIO SA DE CV", "c": "1120-1058-0000-0000"}, {"n": "HERNANDEZ OLVERA JAIME MARIN", "c": "1120-1059-0000-0000"}, {"n": "Damian Negrete Gachuz", "c": "1120-1060-0000-0000"}, {"n": "FONATUR MANTENIMIENTO TURISTICO SA DE CV", "c": "1120-1061-0000-0000"}, {"n": "RAMIREZ LOPEZ RITA AMELIA", "c": "1120-1062-0000-0000"}, {"n": "COMERCIALIZADORA DE BANDERAS MEXICO SA D", "c": "1120-1063-0000-0000"}, {"n": "MAQINDI SA DE CV", "c": "1120-1065-0000-0000"}, {"n": "Ruan Delgado Gildardo", "c": "1120-1066-0000-0000"}, {"n": "HAUS ASTURIAS S DE RL DE CV", "c": "1120-1069-0000-0000"}, {"n": "RAMIREZ GONZALEZ JUAN FRANCISCO", "c": "1120-1071-0000-0000"}, {"n": "RUIZ IRIGOYEN Y ASOCIADOS SC", "c": "1120-1073-0000-0000"}, {"n": "ELEKTRA DEL MILENIO SA DE CV", "c": "1120-1074-0000-0000"}, {"n": "INDUSTRIAS COSTA BRAVA SA DE CV", "c": "1120-1078-0000-0000"}, {"n": "LUNA TORRES ALICIA", "c": "1120-1080-0000-0000"}, {"n": "DESARROLLADORA MORFEUS S DE RL DE CV", "c": "1120-1081-0000-0000"}, {"n": "JOSE FELIX HERRERA GARNICA", "c": "1120-1082-0000-0000"}, {"n": "INFRAESTRUCTURA URBANA KA, S.A. DE C.V.", "c": "1120-1083-0000-0000"}, {"n": "ELOBA CONSTRUCCIONES SA DE CV", "c": "1120-1084-0000-0000"}, {"n": "GRUPO KLINKA", "c": "1120-1085-0000-0000"}, {"n": "FUNDACION HOGARES IAP", "c": "1120-1087-0000-0000"}, {"n": "RESIDENCIAS MODERNAS CALIFORNIA SA DE CV", "c": "1120-1088-0000-0000"}, {"n": "INMOBILIARIA Y CONSTRUCCIONES ALPHER SA", "c": "1120-1092-0000-0000"}, {"n": "MOTA ENGIL MEXICO SA DE CV", "c": "1120-1094-0000-0000"}, {"n": "NUÑO TORALES CRUZ GERARDO", "c": "1120-0587-0000-0000"}, {"n": "ARQUITECTOS Y OBRAS PERDURABLES SA DE CV", "c": "1120-1099-0000-0000"}, {"n": "STARAN CONSULTORES SA DE CV", "c": "1120-1100-0000-0000"}, {"n": "SANDOVAL SANCHEZ ISRAEL", "c": "1120-1101-0000-0000"}, {"n": "DACIS AGENCIA ADUANAL", "c": "1120-1102-0000-0000"}, {"n": "INTERNATIONAL PAPER MEXICO COMPANY S DE", "c": "1120-1104-0000-0000"}, {"n": "RAMIREZ GUTIERREZ ANTONIO", "c": "1120-1106-0000-0000"}, {"n": "CIVILIZACION DEL CAMBIO SA DE CV", "c": "1120-1107-0000-0000"}, {"n": "INMOBILIARIA GAOS SA DE CV", "c": "1120-1110-0000-0000"}, {"n": "LB ARQUITECTURA Y CONSTRUCCIONES,  S.A. DE C.V.", "c": "1120-1116-0000-0000"}, {"n": "CIMENTACION TECNICA SA DE CV", "c": "1120-1117-0000-0000"}, {"n": "CONSORCIO AMESA SA DE CV", "c": "1120-1123-0000-0000"}, {"n": "CONSTRUCTORA TORREBLANCA SA DE CV", "c": "1120-1125-0000-0000"}, {"n": "ACCIONA INFRAESTRUCTURAS MEXICO, S.A. DE C.V.", "c": "1120-1126-0000-0000"}, {"n": "DOMINGUEZ ROMERO RUBEN", "c": "1120-1129-0000-0000"}, {"n": "CONSTRUCCIONES Y CARRETERAS SA DE CV", "c": "1120-1130-0000-0000"}, {"n": "CEMENTOS Y CONCRETOS DEL ISTMO S.A.", "c": "1120-1131-0000-0000"}, {"n": "ZARZUA FLORES LUIS HERIBERTO", "c": "1120-1133-0000-0000"}, {"n": "PYASUR SA DE CV", "c": "1120-1134-0000-0000"}, {"n": "LOPEZ BAEZ JOSE CRUZ", "c": "1120-1136-0000-0000"}, {"n": "LATINOAMERCIANO DE CONRETOS SA DE CV", "c": "1120-1137-0000-0000"}, {"n": "LARA DORANTES GRISELDA", "c": "1120-1138-0000-0000"}, {"n": "ARTEAGA CASTRO EDGAR", "c": "1120-1139-0000-0000"}, {"n": "BOYSO SANCHEZ LEONEL", "c": "1120-1140-0000-0000"}, {"n": "AGUILAR LIZARDI FRANCISCO JAVIER", "c": "1120-1141-0000-0000"}, {"n": "EPCCOR CONSTRUCCION SA DE CV", "c": "1120-1143-0000-0000"}, {"n": "CONSORCIO INMOBILIARIO CONSTRUCTOR CHOYON, S.A. DE C.V.", "c": "1120-1144-0000-0000"}, {"n": "AXEL ASESORIA EN COMERCIO EXTERIOR", "c": "1120-1145-0000-0000"}, {"n": "ESPACIOS VERDES INTEGRALES, S.A. DE C.V.", "c": "1120-1147-0000-0000"}, {"n": "DESARROLLO INMOBILIARIO GERJAU SA DE CV", "c": "1120-1149-0000-0000"}, {"n": "ZEQUEIDA RUIZ KENJI", "c": "1120-1150-0000-0000"}, {"n": "HOSPITAL CARMEN ELENA SA DE CV", "c": "1120-1151-0000-0000"}, {"n": "GRUPO KEMAKMURAN SA DE CV", "c": "1120-1152-0000-0000"}, {"n": "BONIFACIO CORONA CECILIA", "c": "1120-1156-0000-0000"}, {"n": "GRUPO KREO DESARROLLADORA SA DE CV", "c": "1120-1157-0000-0000"}, {"n": "ORTEGA MIRANDA CHRISTIAN IVAN", "c": "1120-1159-0000-0000"}, {"n": "IMPULSO Y PROMOCION EMPRESARIAL, S.A. DE C.V.", "c": "1120-1162-0000-0000"}, {"n": "GARCIA SUAREZ MARCELA", "c": "1120-1163-0000-0000"}, {"n": "AVANZA TRANSPORTE Y ARRENDAMIENTOS SA", "c": "1120-1165-0000-0000"}, {"n": "INFRAESTRUCTURA DEL GOLFO SA DE CV", "c": "1120-1167-0000-0000"}, {"n": "SUPER EXPRESSO BRIAN SA DE CV", "c": "1120-1168-0000-0000"}, {"n": "FABRICACION Y MANUFACTURA DE REMOLQUES ORTIZ S.A. DE C.V.", "c": "1120-1169-0000-0000"}, {"n": "PAVIMENTACION Y CONSTRUCCIONES FENA SA D", "c": "1120-1170-0000-0000"}, {"n": "FORZA ZAZUETA SA DE CV", "c": "1120-1171-0000-0000"}, {"n": "RAMIREZ LOPEZ NORMA GUADALUPE", "c": "1120-1172-0000-0000"}, {"n": "DESARROLLADORA SANTA MARGARITA", "c": "1120-1175-0000-0000"}, {"n": "CONSTRUCTORA RUSVA, S.A. DE C.V.", "c": "1120-1178-0000-0000"}, {"n": "CONCEPTO DE OBRA CIVIL ASOCIADA SA DE CV", "c": "1120-1179-0000-0000"}, {"n": "VIVIENDA OBRA Y DISEÑO SA DE CV", "c": "1120-1181-0000-0000"}, {"n": "CONSTRUCTORA BALBEK SA DE CV", "c": "1120-1183-0000-0000"}, {"n": "CONSTRUCTORA ALCESI SA DE CV", "c": "1120-1184-0000-0000"}, {"n": "MONTIEL PICHARDO CESAR", "c": "1120-1185-0000-0000"}, {"n": "PINEDA OLEA DOROTEO", "c": "1120-1187-0000-0000"}, {"n": "GUERRERO ANAYA OLGA INOVVE", "c": "1120-1189-0000-0000"}, {"n": "JHERSO CONSTRUCCIONES Y MANTENIMIENTO SA", "c": "1120-1190-0000-0000"}, {"n": "MEXICANA DE PRESFUERZO SA DE CV", "c": "1120-1191-0000-0000"}, {"n": "MERLOS LAGUNAS MOISES", "c": "1120-1192-0000-0000"}, {"n": "PROCESADORA Y DISTRIBUIDORA DE CONCRETO, S. DE R.L. DE C.V.", "c": "1120-1193-0000-0000"}, {"n": "SUPERVISORA Y CONSTRUCTORA MEDINA SA DE", "c": "1120-1194-0000-0000"}, {"n": "CONSTRUCTORA BECMA DE HIDALGO SA DE CV", "c": "1120-1195-0000-0000"}, {"n": "CONSTRUCCIONES MATERIALES Y EQUIPOS ELEC", "c": "1120-1197-0000-0000"}, {"n": "SIERRA MOZO DEMETRIO", "c": "1120-1198-0000-0000"}, {"n": "VERGARA GONZALEZ EDGAR FERNANDO", "c": "1120-1199-0000-0000"}, {"n": "LARUS SERVICIOS STRUCTURALES SA DE CV", "c": "1120-1200-0000-0000"}, {"n": "MARTINEZ GONZALEZ JUAN FELIPE", "c": "1120-1201-0000-0000"}, {"n": "VARGAS HERNANDEZ JOSE ALBERTO", "c": "1120-1202-0000-0000"}, {"n": "CONMEXSA SA DE CV", "c": "1120-1203-0000-0000"}, {"n": "ADMIX TECH CENTRO, S.A DE C.V.", "c": "1120-1204-0000-0000"}, {"n": "PRO EVENTOS MESCUI SA DE CV", "c": "1120-1205-0000-0000"}, {"n": "MENDOZA RODRIGUEZ ELVIN", "c": "1120-1206-0000-0000"}, {"n": "MARTINEZ GUTIERREZ DULCE MARIA", "c": "1120-1207-0000-0000"}, {"n": "PROYECTO Y EDIFICACIONES LUJO-YUMAR SA D", "c": "1120-1208-0000-0000"}, {"n": "BARRAGAN INFANTE JUAN MANUEL", "c": "1120-1209-0000-0000"}, {"n": "VAZQUEZ AMBRIZ TRINIDAD", "c": "1120-1210-0000-0000"}, {"n": "ANGELES PEREZ DAVID", "c": "1120-1211-0000-0000"}, {"n": "PEREZ RAMIREZ JOSE MARIO", "c": "1120-1212-0000-0000"}, {"n": "MONROY GUEL MARIO ALBERTO", "c": "1120-1213-0000-0000"}, {"n": "TRITURACIONES MONROY GUEL, S.A. DE C.V.", "c": "1120-1214-0000-0000"}, {"n": "PREDYM SA DE CV", "c": "1120-1215-0000-0000"}, {"n": "CAPACITACION Y SERVICIOS INTEGRALES SA D", "c": "1120-1216-0000-0000"}, {"n": "CASTAÑEDA RUAN CONSULTORES SC", "c": "1120-1217-0000-0000"}, {"n": "MUNGUIA HERNANDEZ ALFONSO", "c": "1120-1218-0000-0000"}, {"n": "EZKERRE", "c": "1120-1219-0000-0000"}, {"n": "CAMPUZANO AGUILAR LUIS", "c": "1120-1220-0000-0000"}, {"n": "PROMOTORA DE INVERSIONES SUMMA SA", "c": "1120-1221-0000-0000"}, {"n": "DIAZ GALEANA JOSUE LIBORIO", "c": "1120-1222-0000-0000"}, {"n": "EL SAZON DE MONTEVIDEO, S.A. DE C.V.", "c": "1120-1223-0000-0000"}, {"n": "CONDOMINIO PERIFERICO SUR 4194,  A. C.", "c": "1120-1224-0000-0000"}, {"n": "DECISIONES Y ESTRATEGIAS AM SA DE CV", "c": "1120-1225-0000-0000"}, {"n": "EMSI PROFEDIONISTAS ASOCIADOS SC", "c": "1120-1226-0000-0000"}, {"n": "LIDIA CASTAÑEDA ALONSO", "c": "1120-1227-0000-0000"}, {"n": "HERNANDEZ CABALLERO GLORIA", "c": "1120-1228-0000-0000"}, {"n": "SECRETARIA DE COMUNICACIONES Y TRANSPORTES DIRECCION GENERAL DE CARRETERAS", "c": "1120-1229-0000-0000"}, {"n": "PROCESOS ALIMENTICIOS INSURGENTES SA DE", "c": "1120-1230-0000-0000"}, {"n": "DESARROLLO Y ESTRATEGIAS DE NEGOCIOS SC", "c": "1120-1231-0000-0000"}, {"n": "HERNANDEZ RAMOS ALEJANDRO", "c": "1120-1232-0000-0000"}, {"n": "ANTONIO MORALES ROGELIO", "c": "1120-1233-0000-0000"}, {"n": "CONSTRUCCIONES FADH S DE RL", "c": "1120-1234-0000-0000"}, {"n": "LB CLEANING CENTER, S.A. DE C.V.", "c": "1120-1235-0000-0000"}, {"n": "SAFI 223 SA DE CV", "c": "1120-1236-0000-0000"}, {"n": "VECONCRETAR, S.A. DE C.V.", "c": "1120-1237-0000-0000"}, {"n": "TRITURADORA Y PROCESADORA DE MATERIALES SANTA  ANITA SA DE CV", "c": "1120-1238-0000-0000"}, {"n": "REYES MENDEZ LORENZO", "c": "1120-1239-0000-0000"}, {"n": "LATINOAMERICANA DE CONCRETOS SA DE CV", "c": "1120-1240-0000-0000"}, {"n": "CEMEX S A B DE C V", "c": "1120-1241-0000-0000"}, {"n": "ROFEL DISTRIBUCIONES SA DE CV", "c": "1120-1242-0000-0000"}, {"n": "INGENIERIA Y CONSTRUCCIONES COLISEUM SA", "c": "1120-1243-0000-0000"}, {"n": "DURAN GARCIA SERGIO ARMANDO", "c": "1120-1244-0000-0000"}, {"n": "GRUPO CEMENTERO DE OCCIDENTE, S.A. DE C.V.", "c": "1120-1245-0000-0000"}, {"n": "Martínez Martínez Sthepanie", "c": "1120-1246-0000-0000"}, {"n": "MEX MACHINES SA DE CV", "c": "1120-1247-0000-0000"}, {"n": "OPERACIONES ALIMENTICIAS JRR, S.A. DE C.V.", "c": "1120-1248-0000-0000"}, {"n": "PROCSA CONSTRUCCIONES, S.A. DE C.V.", "c": "1120-1249-0000-0000"}, {"n": "INGENIERIA VIAL Y TRANSPORTE S.A. DE C.V.", "c": "1120-1251-0000-0000"}, {"n": "CONTRUACABADOS JAH SA DE CV", "c": "1120-1252-0000-0000"}, {"n": "EZEQUIEL CASTRO OLMEDO", "c": "1120-1253-0000-0000"}, {"n": "GINEZ MOZO JUAN", "c": "1120-1254-0000-0000"}, {"n": "TALLERES Y TRANSPORTES, S.A. DE C.V.", "c": "1120-1255-0000-0000"}, {"n": "GARILLA INGENIERIA SUSTENTABLE SA DE CV", "c": "1120-1256-0000-0000"}, {"n": "ROYUELA SOLARANA JOSE ANTONIO", "c": "1120-1257-0000-0000"}, {"n": "CIACSA SA DE CV", "c": "1120-1258-0000-0000"}, {"n": "IBAI CONSSULAR SA DE CV", "c": "1120-1259-0000-0000"}, {"n": "ASOCIACION DE VECINOS COLONIA ROMA  AC", "c": "1120-1260-0000-0000"}, {"n": "DESARROLLADORA M, S.A. DE C.V.", "c": "1120-1261-0000-0000"}, {"n": "DERIVADOS Y AGREGADOS ORTIZ S.A. DE C.V.", "c": "1120-1262-0000-0000"}, {"n": "COMERCIALIZADORA ZYP, S.A. DE C.V.", "c": "1120-1263-0000-0000"}, {"n": "SALVO RIVERA YOLANDA HINGRID", "c": "1120-1265-0000-0000"}, {"n": "PIRCSA SA DE CV", "c": "1120-1266-0000-0000"}, {"n": "DIAZ GALEANA JOSE LIBORIO", "c": "1120-1267-0000-0000"}, {"n": "KEMZUS SA DE CV", "c": "1120-1268-0000-0000"}, {"n": "RODRIGUEZ PUTTZIS HECTOR ORLANDO", "c": "1120-1269-0000-0000"}, {"n": "ANAYA VARGAS NORMA", "c": "1120-1270-0000-0000"}, {"n": "KLESA OPERACIONES Y PROYECTOS GLOBALES", "c": "1120-1271-0000-0000"}, {"n": "CONSTRUCCIONES URBAN CENTER SA DE CV", "c": "1120-1272-0000-0000"}, {"n": "SEIMAC SA DE CV", "c": "1120-1273-0000-0000"}, {"n": "GOBIERNO DEL ESTADO DE CAMPECHE SEDUOPI", "c": "1120-1274-0000-0000"}, {"n": "Fragoso Cedillo Arturo", "c": "1120-1275-0000-0000"}, {"n": "SALAS GONZALEZ MAURICIO", "c": "1120-1276-0000-0000"}, {"n": "TREIASA CONSTRUCCION Y ASESORIA SA", "c": "1120-1277-0000-0000"}, {"n": "SERVICIOS Y MANTENIMIENTO MCB&JMV SA DE CV", "c": "1120-1278-0000-0000"}, {"n": "CORTES PURECO GILCAR", "c": "1120-1279-0000-0000"}, {"n": "ARMA INGENIERIA Y ARQUITECTURA, S.A. DE C.V.", "c": "1120-1280-0000-0000"}, {"n": "SOLUCIONES INTEGRALES EN CONCRETO", "c": "1120-1281-0000-0000"}, {"n": "INNOVACION Y SOLUCION EN POLIMEROS S DE R.L.  DE C.V.", "c": "1120-1282-0000-0000"}, {"n": "INSTITUTO DE INFRAESTRUCTURA CARRETERA DE YUCATAN", "c": "1120-1283-0000-0000"}, {"n": "FELIPE MERLOS PEREZ", "c": "1120-1284-0000-0000"}, {"n": "MIXER PLUS DEL CENTRO", "c": "1120-1285-0000-0000"}, {"n": "YOLANDA HINGRIT SALTO RIVERA", "c": "1120-1286-0000-0000"}, {"n": "MUSTRI PENHOS DAVID", "c": "1120-1287-0000-0000"}, {"n": "MARTINEZ DAVILA JOSE ARTURO", "c": "1120-1288-0000-0000"}, {"n": "JURADO NIEVES JOSE MIGUEL", "c": "1120-1289-0000-0000"}, {"n": "CONSORCIO CONSTRUCTOR RUIVEZ MEXICANO", "c": "1120-1290-0000-0000"}, {"n": "CONSTRUCCIONES TECAP SA DE CV", "c": "1120-1291-0000-0000"}, {"n": "RAMIREZ MOLINA JOSE LUIS", "c": "1120-1292-0000-0000"}, {"n": "ESPINOSA REYES FIDELA", "c": "1120-1293-0000-0000"}, {"n": "HERNANDEZ SANCHEZ JUAN MANUEL", "c": "1120-1294-0000-0000"}, {"n": "CONSTRUCCIONES Y RECURSOS SUAREZ, S.A. DE C.V.", "c": "1120-1295-0000-0000"}, {"n": "BURGOS VAZQUEZ JULIETA", "c": "1120-1296-0000-0000"}, {"n": "TIENDAS CHEDRAUI S.A. DE C.V.", "c": "1120-1297-0000-0000"}, {"n": "ARE INGENIEROS CIVILES SA DE CV", "c": "1120-1298-0000-0000"}, {"n": "MULTISERVICIOS EMPRESARIALES DE MEX", "c": "1120-1299-0000-0000"}, {"n": "CRUZ DIAZ FRANCISCO", "c": "1120-1300-0000-0000"}, {"n": "GARCIA GALVAN CAROLINA", "c": "1120-1301-0000-0000"}, {"n": "PRODUCTORA Y COMERCIALIZADORA LEDAGI  DE APAXCO, S.A. DE C.V", "c": "1120-1302-0000-0000"}, {"n": "URIBE SANCHEZ FERNANDO", "c": "1120-1303-0000-0000"}, {"n": "IDEVVSA CONSTRUCCIONES SA DE CV", "c": "1120-1304-0000-0000"}, {"n": "JUDE BOX SA DE CV", "c": "1120-1305-0000-0000"}, {"n": "GRUPO LEFIC SERVICES S.A. DE C.V.", "c": "1120-1306-0000-0000"}, {"n": "JORGE ARTURO HERNANDEZ SANCHEZ", "c": "1120-1307-0000-0000"}, {"n": "GRUPO INMOBILIARIO HERMANOS DEL SURESTE, S.A. DE C.V.", "c": "1120-1308-0000-0000"}, {"n": "RENTAMAS Y EQUIPOS ORTIZ SA DE CV", "c": "1120-1309-0000-0000"}, {"n": "Profiq S.A. de C.V.", "c": "1120-1310-0000-0000"}, {"n": "MUSTRI KATZ JORGE SAMUEL", "c": "1120-1311-0000-0000"}, {"n": "RIVERA ESPINOSA JAVIER", "c": "1120-1312-0000-0000"}, {"n": "EL DESVAN EL REY DE LA BOTANA SA DE CV", "c": "1120-1313-0000-0000"}, {"n": "CASTILLO SERRALDE DANIEL", "c": "1120-1314-0000-0000"}, {"n": "FABELA ALVAREZ HUGO SAMUEL", "c": "1120-1315-0000-0000"}, {"n": "OTERCOM S.A. DE C.V.", "c": "1120-1316-0000-0000"}, {"n": "ALVARADO GARCIA FERNANDO", "c": "1120-1317-0000-0000"}, {"n": "CONACO ORTEGA, S.A. DE C.V.", "c": "1120-1318-0000-0000"}, {"n": "GRUPO FERRETERO GALA SA DE CV", "c": "1120-1319-0000-0000"}, {"n": "SICCONCRETOS", "c": "1120-1320-0000-0000"}, {"n": "OPUS DIRECCION DE PROYECTOS, S.A. DE C.V.", "c": "1120-1321-0000-0000"}, {"n": "AT&T Comunicaciones Digitales, S. de R.L. de C.V.", "c": "1120-1322-0000-0000"}, {"n": "PROQUIAB S.A. DE C.V.", "c": "1120-1323-0000-0000"}, {"n": "OPERADORA DE ESTACIONAMIENTOS NAVARRETE SA DE CV", "c": "1120-1324-0000-0000"}, {"n": "BARRERA SANCHEZ JOSE", "c": "1120-1325-0000-0000"}, {"n": "BLANCO CONTRERAS VERONICA", "c": "1120-1326-0000-0000"}, {"n": "CARRASCO MARTINEZ MARIA LUISA", "c": "1120-1327-0000-0000"}, {"n": "DIAZ ANDRADE ROBERTO", "c": "1120-1328-0000-0000"}, {"n": "G&A SMART SA DE CV", "c": "1120-1329-0000-0000"}, {"n": "PIEDRA DURA CONSTRUCCIONES, S.A. DE C.V.", "c": "1120-1330-0000-0000"}, {"n": "CENTRO GOURMET RIOS SA DE CV", "c": "1120-1331-0000-0000"}, {"n": "NAVARRETE AVILA ATANACIO", "c": "1120-1332-0000-0000"}, {"n": "HRAFA EDIFICACIONES, S.A. DE C.V.", "c": "1120-1333-0000-0000"}, {"n": "CIRCUITO FUENTES DEL PEDREGAL 915", "c": "1120-1334-0000-0000"}, {"n": "INGENIERIA Y ARQUITECTURA CARMAR, S.A. DE C.V.", "c": "1120-1335-0000-0000"}, {"n": "RAMIREZ LOPEZ PEDRO", "c": "1120-1336-0000-0000"}, {"n": "INSTITUTO TLAZOCHIC  A.C.", "c": "1120-1337-0000-0000"}, {"n": "ATANACIO NAVARRETE ZUÑIGA", "c": "1120-1338-0000-0000"}, {"n": "OLVERA AMADOR JOSE ABUNDIO", "c": "1120-1339-0000-0000"}, {"n": "PACHECO FIERROS JORGE NOE", "c": "1120-1340-0000-0000"}, {"n": "Pedraza Núñez Benjamín Maximiliano", "c": "1120-1341-0000-0000"}, {"n": "UNDER CONSTRUCTION, S.A. DE C.V.", "c": "1120-1342-0000-0000"}, {"n": "TRIBUNAL SUPERIOR DE JUSTICIA DE LA CIUDAD DE MEXICO", "c": "1120-1343-0000-0000"}, {"n": "ICG ELECTRICA Y DE COMUNICACIONES DE MEXICO S.A. DE C.V.", "c": "1120-1344-0000-0000"}, {"n": "AVILA SANCHEZ AGUSTIN", "c": "1120-1345-0000-0000"}, {"n": "GRUPO CENTRO OCCIDENTE, S.A. DE C.V.", "c": "1120-1346-0000-0000"}, {"n": "MACORO INGENIERIA CIVIL, S.A. DE C.V.", "c": "1120-1347-0000-0000"}, {"n": "TACHIS, S.A. DE C.V.", "c": "1120-1348-0000-0000"}, {"n": "Desarrollo de Proyectos Integrales INTEGRA, S.A. de C.V.", "c": "1120-1349-0000-0000"}, {"n": "ADMINISTRACION DE ALIMENTOS SEGOVIA, S.A. DE C.V.", "c": "1120-1350-0000-0000"}, {"n": "GRUPO TOCH", "c": "1120-1351-0000-0000"}, {"n": "ARMANDO NAVARRETE ZUÑIGA", "c": "1120-1352-0000-0000"}, {"n": "Comercializadora Maxbel S.A DE C.V.", "c": "1120-1353-0000-0000"}, {"n": "Comercializadora Industrial Rolmax S.A de C.V", "c": "1120-1354-0000-0000"}, {"n": "SIERRA MENDOZA JAVIER", "c": "1120-1355-0000-0000"}, {"n": "NAVARRETE TORRES FERNANDO", "c": "1120-1356-0000-0000"}, {"n": "MAQUINARIA Y TRANSPORTES MILENIO S.A. DE C.V.", "c": "1120-1357-0000-0000"}, {"n": "CAMACHO SANCHEZ LAURA", "c": "1120-1358-0000-0000"}, {"n": "CENTRO SCT CAMPECHE", "c": "1120-1359-0000-0000"}, {"n": "GORDILLO GORDILLO GABRIELA SELENE", "c": "1120-1360-0000-0000"}, {"n": "Consorcio Mexicano de Bombeo, S.A. de C.V.", "c": "1120-1361-0000-0000"}, {"n": "MORALES RODRIGUEZ IVAN", "c": "1120-1362-0000-0000"}, {"n": "BARLUNG URBANIZACIONES SA DE CV", "c": "1120-1363-0000-0000"}, {"n": "INDUSTRIAL URBANIZADORA DEL BAJIO, S.A. DE C.V.", "c": "1120-1364-0000-0000"}, {"n": "MIXERPLUS DEL VALLE DE MEXICO", "c": "1120-1365-0000-0000"}, {"n": "PRODUCTORES DE AGUACATES 5 HERMANOS S.P.R. DE R.L", "c": "1120-1366-0000-0000"}, {"n": "PREMOR, S.A. DE C.V.", "c": "1120-1367-0000-0000"}, {"n": "TELECOMUNICACIONES Y CONSTUCCIONES IP, S.A. DE C.V.", "c": "1120-1368-0000-0000"}, {"n": "RAFAEL HERRERA MURILLON", "c": "1120-1369-0000-0000"}, {"n": "TREMACK CONSTRUCCIONES, S.A. DE C.V.", "c": "1120-1370-0000-0000"}, {"n": "OBRAS Y SERVICIOS INMOVITALIA SA DE CV", "c": "1120-1371-0000-0000"}, {"n": "AGUILAR ROJO GRISELDA", "c": "1120-1372-0000-0000"}, {"n": "MERCADO ECOLOGICO DE MATERIALES", "c": "1120-1373-0000-0000"}, {"n": "INSTITUTO MUNICIPAL DE VIVIENDA DE DURANGO", "c": "1120-1374-0000-0000"}, {"n": "CONSTRUCCIONES LERMA, S.A. DE C.V.", "c": "1120-1375-0000-0000"}, {"n": "GUSTAVO ESPINO MAULEÓN", "c": "1120-1376-0000-0000"}, {"n": "ELVIA NAVARRETE ZUÑIGA", "c": "1120-1377-0000-0000"}, {"n": "DURAN BECERRA CLAUDIA", "c": "1120-1378-0000-0000"}, {"n": "JORGE LUIS MILLAN MONTES DE OCA", "c": "1120-1379-0000-0000"}, {"n": "MUNICIPIO DE SANTIAGO NL", "c": "1120-1380-0000-0000"}, {"n": "MATLAMEX SA DE CV", "c": "1120-1381-0000-0000"}, {"n": "INMOBILIARIA LIZ, S.A. DE C.V.", "c": "1120-1382-0000-0000"}, {"n": "MISSION CONTROL, S.A. DE C.V.", "c": "1120-1383-0000-0000"}, {"n": "CORPORATIVO GRUPO AFRISA S DE RL DE CV", "c": "1120-1384-0000-0000"}, {"n": "ALZ CONSTRUCCIONES SA DE CV", "c": "1120-1385-0000-0000"}, {"n": "NACIONAL MONTE DE PIEDAD IAP", "c": "1120-1386-0000-0000"}, {"n": "ANGEL HERACLIO LARA ZUÑIGA", "c": "1120-1387-0000-0000"}, {"n": "A Y L INGENIERIA Y CONSTRUCCION SA DE CV", "c": "1120-1388-0000-0000"}, {"n": "VICTOR HUGO ALDANA CIPRES", "c": "1120-1389-0000-0000"}, {"n": "CONCRETOS MICELI, S.A. DE C.V.", "c": "1120-1390-0000-0000"}, {"n": "CONSTRUCTORA RAFCA SA DE CV", "c": "1120-1391-0000-0000"}, {"n": "JOSE LUIS ORTIZ LOPEZ", "c": "1120-1392-0000-0000"}, {"n": "MUNICIPIO DE LA CIUDAD DE MONTERREY", "c": "1120-1393-0000-0000"}, {"n": "COMISION FEDERAL DE ELECTRICIDAD", "c": "1120-1394-0000-0000"}, {"n": "DISEÑO Y CONSTRUCCION VILA SA DE CV", "c": "1120-1395-0000-0000"}, {"n": "OLVERA GARRIDO BERTHA", "c": "1120-1396-0000-0000"}, {"n": "COMERCIALIZADORA DE TODO MENA SA DE CV", "c": "1120-1397-0000-0000"}, {"n": "NAVARRETE TORRES JORGE ARMANDO", "c": "1120-1398-0000-0000"}, {"n": "PACCAR FINANCIAL MEXICO SA DE CV", "c": "1120-1399-0000-0000"}, {"n": "HERNANDEZ CORONA GENARO", "c": "1120-1400-0000-0000"}, {"n": "OPERADORA DE ALIMENTOS NUEVA YORK S.A. DE C.V.", "c": "1120-1401-0000-0000"}, {"n": "OPERADORA DE ALIMENTOS Y TACOS S.A. DE C.V.", "c": "1120-1402-0000-0000"}, {"n": "ADMINISTRADORA DE RESTAURANTES TAQUEARTE, S.A. DE C.V.", "c": "1120-1403-0000-0000"}, {"n": "INFRAESTRUCTURA Y CONSULTORIA HIDRAULICA S.A. DE C.V.", "c": "1120-1404-0000-0000"}, {"n": "SERVICIOS PARA LA CONSTRUCCION Y COMERCIALIZADORA,S.A. DE C.V.", "c": "1120-1405-0000-0000"}, {"n": "CONCRETER2 SA DE CV", "c": "1120-1406-0000-0000"}, {"n": "TREBOL LOGISTIK  S,A DE C,V", "c": "1120-1407-0000-0000"}, {"n": "ASCENCIO JOAQUIN JOSE EDUARDO", "c": "1120-1408-0000-0000"}, {"n": "ERCON TECHNOLOGY, S. DE R.L. DE C.V.", "c": "1120-1409-0000-0000"}, {"n": "VIRGO CAMINOS Y CONSTRUCCIONES SA DE CV", "c": "1120-1410-0000-0000"}, {"n": "RUIZ ZEPEDA CARLOS ALBERTO", "c": "1120-1411-0000-0000"}, {"n": "LUMIND S.A. DE C.V.", "c": "1120-1412-0000-0000"}, {"n": "MATERIALES CONSTRUCOM DEL SOCONUSCO SA DE CV", "c": "1120-1413-0000-0000"}, {"n": "CONCRETOS PREFABRICADOS PAISA SA DE CV", "c": "1120-1414-0000-0000"}, {"n": "DISTRIBUIDORA FREHER SA DE CV", "c": "1120-1415-0000-0000"}, {"n": "COMERCIALIZADORA ARTEURS, S.A. DE C.V.", "c": "1120-1416-0000-0000"}, {"n": "LUIS ENRIQUE HERNANDEZ MALDONADO", "c": "1120-1417-0000-0000"}, {"n": "PRO-PAT PROMOTORA DE PROYECTOS TERMICOS E INGENIERIA SA DE CV", "c": "1120-1418-0000-0000"}, {"n": "ISAIAS ORTIZ CIPRES", "c": "1120-1419-0000-0000"}, {"n": "SERVICIOS EDUCATIVOS INTEGRADOS AL ESTADO DE MEXICO", "c": "1120-1420-0000-0000"}, {"n": "DISTRIBUIDORA DE MATERIALES DE CONSTRUCCION Y ACABADOS RESIDENCIALES, S.A. DE C.V.", "c": "1120-1421-0000-0000"}, {"n": "RAUL SALVADOR ESQUERRA HUERTA", "c": "1120-1422-0000-0000"}, {"n": "FIDEICOMISO 1936 FONDO NACIONAL DE INFRAESTRUCTURA", "c": "1120-1423-0000-0000"}, {"n": "OSCAR NAVARRETE MARQUEZ", "c": "1120-1424-0000-0000"}, {"n": "MIGUEL ANGEL ORTIZ CIPRES", "c": "1120-1425-0000-0000"}, {"n": "OPERADORA DE TACOS DE BRASA SAPI, S.A. DE C.V.", "c": "1120-1426-0000-0000"}, {"n": "VICTOR HUGO VELAZQUEZ JUAREZ", "c": "1120-1427-0000-0000"}, {"n": "COMBAG CONCRETOS SA DE CV", "c": "1120-1428-0000-0000"}, {"n": "MERP EDIFICACIONES Y TERRACERIAS SA DE CV", "c": "1120-1429-0000-0000"}, {"n": "ADMINISTRADORA DE ALIMENTOS NAPOLI SAPI DE C.V.", "c": "1120-1430-0000-0000"}, {"n": "SERVICE ONE SOLUTIONS, S.A. DE C.V.", "c": "1120-1431-0000-0000"}, {"n": "EVISA DESIGN  AND LANDSCAPE SOLUTIONS, S.A. DE C.V.", "c": "1120-1432-0000-0000"}, {"n": "JONATHAN ARTURO MARTINEZ BASTERRA", "c": "1120-1433-0000-0000"}, {"n": "PEREZ LOPEZ  ALEJANDRO", "c": "1120-1434-0000-0000"}, {"n": "AEVUM ASESORES PATRIMONIALES, S.C.", "c": "1120-1435-0000-0000"}, {"n": "Gregorio Luna Mozo", "c": "1120-1436-0000-0000"}, {"n": "ARQUITECTONICA P + E SA DE CV", "c": "1120-1437-0000-0000"}, {"n": "EDIFICACIONES Y TERRACERIAS MOTI SA DE CV", "c": "1120-1438-0000-0000"}, {"n": "MARTIN CARLOS DEL RIO PACHECO", "c": "1120-1439-0000-0000"}, {"n": "JOSEFINA MATA RENDON", "c": "1120-1440-0000-0000"}, {"n": "MATERIALES Y ACARREOS ZITRO SA DE CV", "c": "1120-1441-0000-0000"}, {"n": "CAMPUZANO AGUILAR MIGUEL ANGEL", "c": "1120-1442-0000-0000"}, {"n": "FUNDACION IFOOD A.C.", "c": "1120-1443-0000-0000"}, {"n": "TOMSA CONSTRUCCIONES, S.A. DE C.V.", "c": "1120-1444-0000-0000"}, {"n": "BAYCA OBRAS Y PROYECTOS, S.A. DE C.V.", "c": "1120-1445-0000-0000"}, {"n": "NANCY ADELINA CHAVEZ FLORES", "c": "1120-1447-0000-0000"}, {"n": "PRETENBLOCK Y PREFABRICADOS SA DE CV", "c": "1120-1448-0000-0000"}, {"n": "DISTRIBUCION DISEÑO Y ELABORACION DE CONCRETO DE ALTA RESISTENCIA S DE RL DE CV", "c": "1120-1449-0000-0000"}, {"n": "JORGE RODRIGUEZ DE LA SANCHA", "c": "1120-1450-0000-0000"}, {"n": "MOSQUETA GARCIA VICTOR MANUEL", "c": "1120-1451-0000-0000"}, {"n": "ARQUIMAG PREFABRICADOS DE CONCRETO SA DE CV", "c": "1120-1452-0000-0000"}, {"n": "INDUSTRIAL BLOQUERA MEXICANA SA DE CV", "c": "1120-1453-0000-0000"}, {"n": "GISELA GUADALUPE SANCHEZ MOTILLA", "c": "1120-1454-0000-0000"}, {"n": "JAIME RAMIREZ LOPEZ", "c": "1120-1455-0000-0000"}, {"n": "CONSTRUCTORA INMOBILIARIA GRUPO CAREFA, S.A. DE C.V.", "c": "1120-1456-0000-0000"}, {"n": "CONSTRUCTORA VALZEC, S.A. DE C.V.", "c": "1120-1457-0000-0000"}, {"n": "PICERSA SA DE CV", "c": "1120-1459-0000-0000"}, {"n": "CONSTRUCCIONES DE LAS ROSAS CIVILES SA DE CV", "c": "1120-1460-0000-0000"}, {"n": "VICTOR HUGO GUILLEN PLASCENCIA", "c": "1120-1461-0000-0000"}, {"n": "CONSTRUCCIONES VIKBRAK, S.A. DE C.V.", "c": "1120-1462-0000-0000"}, {"n": "Sociedad de Beneficiencia Sedaka y Marpe, I.A.P", "c": "1120-1463-0000-0000"}, {"n": "JOSE LUIS TEODORO MARTÍNEZ MÉNDEZ", "c": "1120-1464-0000-0000"}, {"n": "OTERCOM, S. A. DE C. V.", "c": "1120-1465-0000-0000"}, {"n": "IMELDA PACHECO DIAZ", "c": "1120-1466-0000-0000"}, {"n": "JUAN CARLOS RAMIREZ HERNANDEZ", "c": "1120-1467-0000-0000"}, {"n": "SOUL  ARQUITECTOS S.A. DE C.V.", "c": "1120-1468-0000-0000"}, {"n": "CONSORCIO DE INGENIEROS CONSTRUCTORES Y CONSULTORES SA DE CV", "c": "1120-1471-0000-0000"}, {"n": "VF INGENIERIA SA DE CV", "c": "1120-1472-0000-0000"}, {"n": "CIDER, CENTRO INTEGRAL DE DECORACION Y RECUBRIMIENTO, SA DE CV", "c": "1120-1473-0000-0000"}, {"n": "ESTACION 0+000 S.A. DE C.V", "c": "1120-1474-0000-0000"}, {"n": "PETRAM FORTIS S DE RL DE CV", "c": "1120-1475-0000-0000"}, {"n": "TALLER PUNTOCERO ARQUITECTURA Y URBANISMO SA DE CV", "c": "1120-1476-0000-0000"}, {"n": "GABRIEL ADAN GRANADOS RAMIREZ", "c": "1120-1477-0000-0000"}, {"n": "SERVICIOS INTEGRALES PONCE CUELLAR SA DE CV", "c": "1120-1478-0000-0000"}, {"n": "CERVANTES FIGUEROA OSCAR HILARIO", "c": "1120-1479-0000-0000"}, {"n": "JOSE LUIS MENDOZA RODRIGUEZ", "c": "1120-1481-0000-0000"}, {"n": "TRITURADOS ANTARA S.A. DE C.V.", "c": "1120-1482-0000-0000"}, {"n": "ARPLUS S.A. DE C.V.", "c": "1120-1483-0000-0000"}, {"n": "ADRIANA ALCANTARA MORENO", "c": "1120-1486-0000-0000"}, {"n": "MARGARITA  ALICIA  AMIEVA MONTAÑO", "c": "1120-1487-0000-0000"}, {"n": "COMERCIALIZADORA EGLIAM", "c": "1120-1488-0000-0000"}, {"n": "BAU INGENIEROS SA DE CV", "c": "1120-1489-0000-0000"}, {"n": "DISTRIBUIDORA DE MATERIALES CAMACHO CABRERA, S.A. DE C.V.", "c": "1120-1490-0000-0000"}, {"n": "ERICK MOLINA ACOSTA", "c": "1120-1491-0000-0000"}, {"n": "ALAMILLA CERVANTES CESAR FERNANDO", "c": "1120-1492-0000-0000"}, {"n": "NACI CONSTRUCCIONES Y ACABADOS EN GENERAL SA DE CV", "c": "1120-1493-0000-0000"}, {"n": "CONSTRUCTORA IKMAN SA DE CV", "c": "1120-1494-0000-0000"}, {"n": "MIGUEL VARGAS CRUZ", "c": "1120-1495-0000-0000"}, {"n": "ABASTECEDORA DE MATERIALES FERREX SA DE CV", "c": "1120-1496-0000-0000"}, {"n": "BLANCA ESTELA VEGA REYES", "c": "1120-1497-0000-0000"}, {"n": "ANTONIO AVENDAÑO AGUSTIN", "c": "1120-1498-0000-0000"}, {"n": "LG FERRECONSTRUCCIONES", "c": "1120-1499-0000-0000"}, {"n": "SERGIO RUPERTO ALVA LUNA", "c": "1120-1501-0000-0000"}, {"n": "CARLOS MORALES MARTINEZ", "c": "1120-1502-0000-0000"}, {"n": "3E SPACIO ARQUITECTOS S.A. DE C.V.", "c": "1120-1503-0000-0000"}, {"n": "IVEKAR CONSTRUCCIONES Y SERVICIOS SA DE CV", "c": "1120-1504-0000-0000"}, {"n": "RINNOVA PREFABRICADOS ECOLOGICOS SA DE CV", "c": "1120-1505-0000-0000"}, {"n": "CEMENTOS MOCTEZUMA", "c": "1120-1506-0000-0000"}, {"n": "ESTACION DE SERVICIO EL CHACON SA DE CV", "c": "1120-1507-0000-0000"}, {"n": "VIRGINIA MORENO TREJO", "c": "1120-1508-0000-0000"}, {"n": "EMPRESA AGA, S.A. DE C.V.", "c": "1120-1509-0000-0000"}, {"n": "GRUPO EMPRESARIAL SIGAS SA DE CV", "c": "1120-1510-0000-0000"}, {"n": "MAZA INFRAESTRUCTURA SA DE CV", "c": "1120-1511-0000-0000"}, {"n": "ARGOZ CONSTRUCCIONES SA DE CV", "c": "1120-1514-0000-0000"}, {"n": "ANGEL ARMANDO SOTO CORTES", "c": "1120-1515-0000-0000"}, {"n": "JORGE PLATA FLORES", "c": "1120-1516-0000-0000"}, {"n": "EPSILON INGENIERIA Y TECNOLOGIA S.A. DE C.V.", "c": "1120-1518-0000-0000"}, {"n": "KARAM VON BERTRAB RICARDO EDMUNDO", "c": "1120-1519-0000-0000"}, {"n": "AME ROBLE INMOBILIARIA SA DE CV", "c": "1120-1521-0000-0000"}, {"n": "EUMIR GERARDO ESPINOSA ISLAS", "c": "1120-1523-0000-0000"}, {"n": "NOEL ORTEGA MIRANDA", "c": "1120-1524-0000-0000"}, {"n": "CARLOS ALBERTO NUÑEZ VAZQUEZ", "c": "1120-1526-0000-0000"}, {"n": "CONSTRUCCIONES ICI S.A. DE C.V.", "c": "1120-1527-0000-0000"}, {"n": "JUAN CRUZ AGUILAR", "c": "1120-1528-0000-0000"}, {"n": "NOMA TEMPORAL ORTEGA", "c": "1120-1530-0000-0000"}, {"n": "TELLEZ ROMERO JESUS", "c": "1120-1531-0000-0000"}, {"n": "AGROINDUSTRIAS DEL BALSAS", "c": "1120-1532-0000-0000"}, {"n": "COMERCIALIZADORA Y CONSTRUCTORA CRISALTEC, S.A. DE C.V.", "c": "1120-1533-0000-0000"}, {"n": "BLACKFLOOR CONSTRUCTORA", "c": "1120-1534-0000-0000"}, {"n": "PAVIMENTOS Y ASFALTOS MEGAR SA DE CV", "c": "1120-1535-0000-0000"}, {"n": "ERIKA SANDOVAL RODRIGUEZ", "c": "1120-1536-0000-0000"}, {"n": "TOMAS MENDOZA ZACATE", "c": "1120-1538-0000-0000"}, {"n": "OMAR ALEJANDRO PEREZ HERNANDEZ", "c": "1120-1540-0000-0000"}, {"n": "PREFABRICADOS ROGUSA SA DE CV", "c": "1120-1541-0000-0000"}, {"n": "IRENE CABRERA SANCHEZ", "c": "1120-1542-0000-0000"}, {"n": "LUIS PALMAS GONZALEZ", "c": "1120-1543-0000-0000"}, {"n": "FERTILIZANTES TEPEYAC, S.A. DE C.V.", "c": "1120-1544-0000-0000"}, {"n": "CONSTRUCTORA Y ARRENDADORA ALTEC SA DE CV", "c": "1120-1545-0000-0000"}, {"n": "TREE ARROW SA DE CV", "c": "1120-1546-0000-0000"}, {"n": "CONSTRUCCIONES MARCKSA, S.A. DE C.V.", "c": "1120-1547-0000-0000"}, {"n": "GA URBANIZACION SA DE CV", "c": "1120-1548-0000-0000"}, {"n": "SOLUCIONES CONSTRUCTIVAS Y DURABLES SA DE CV", "c": "1120-1549-0000-0000"}, {"n": "EDUARDO  ALCANTARA  MORENO", "c": "1120-1550-0000-0000"}, {"n": "GARCIA PADILLA IRWIN RICARDO", "c": "1120-1551-0000-0000"}, {"n": "MASTER B SOLUTIONS MEXICANA", "c": "1120-1552-0000-0000"}, {"n": "ECOTECNOLOGIA DE OCCIDENTE SA DE CV", "c": "1120-1553-0000-0000"}, {"n": "CONSTRUCCIONES Y PREMEZCLADOS DEL CAÑON", "c": "1120-1556-0000-0000"}, {"n": "MERP PAVIMENTOS SA DE CV", "c": "1120-1557-0000-0000"}, {"n": "FACTURAS CANCELADAS", "c": "1120-9999-0000-0000"}, {"n": "IVA RETENIDO", "c": "1140-0005-0000-0000"}, {"n": "IVA RETENIDO COBRADO", "c": "1140-0006-0000-0000"}, {"n": "IVA FACTURADO", "c": "2121-0001-0000-0000"}, {"n": "IVA POR PAGAR COBRADO", "c": "2121-0002-0000-0000"}, {"n": "GARCIA GARCIA EZEQUIEL", "c": "1120-1559-0000-0000"}, {"n": "RAMIREZ GRAJALES CARLOS MARTIN", "c": "1120-1560-0000-0000"}, {"n": "AZUL CONCRETOS Y PREMEZCLADOS SA DE CV", "c": "1120-1561-0000-0000"}, {"n": "DISTRIBUIDORA DE MATERIALES Y CONSTRUCCION MONE SA DE CV", "c": "1120-1562-0000-0000"}, {"n": "GARCIA GRANADOS MAURICIO", "c": "1120-1563-0000-0000"}, {"n": "KODIAK ARANZIA S.A. DE C.V.", "c": "1120-1555-0000-0000"}, {"n": "ROBLEDO GORDILLO LAURA ISABEL", "c": "1120-1571-0000-0000"}, {"n": "GRUPO BRANCUSI", "c": "1120-1567-0000-0000"}, {"n": "GRUPO CONSTRUCTOR Y DESARROLLADOR DE PUEBLA  S.A. DE C.V.", "c": "1120-1568-0000-0000"}, {"n": "MOMAJAAMA", "c": "1120-1585-0000-0000"}, {"n": "PARQUE INDUSTRIAL PUNTA MORRO, S.A.P.I. DE C.V.", "c": "1120-1600-0000-0000"}, {"n": "JACOBO GUZMAN HUGO", "c": "1120-1572-0000-0000"}, {"n": "MIRANDA MARTINEZ ANABEL", "c": "1120-1564-0000-0000"}, {"n": "ROCHEC IMPORTADORA, S.A. DE C.V.", "c": "1120-1593-0000-0000"}, {"n": "SERMEGA", "c": "1120-1597-0000-0000"}, {"n": "BRICK CONTRATISTAS", "c": "1120-1601-0000-0000"}, {"n": "FERTILIZANTES TEPEYAC, S.A. DE C.V.", "c": "1120-1544-0000-0000"}, {"n": "CONSTRUCCIONES ORKAV SA DE CV", "c": "1120-1588-0000-0000"}, {"n": "BDF CONSTRUCCIONES", "c": "1120-1582-0000-0000"}, {"n": "CHAVEZ BRAVO JUAN JOSE", "c": "1120-1577-0000-0000"}, {"n": "BRICK CONTRATISTAS S.A. DE C.V.", "c": "1120-1601-0000-0000"}, {"n": "TORREBAL PETREOS Y DERIVADOS, S.A. DE C.V.", "c": "1120-1602-0000-0000"}, {"n": "CALIDRA DE ORIENTE", "c": "1120-1598-0000-0000"}, {"n": "TAURO ACARREOS EQUIPO LIGERO", "c": "1120-1610-0000-0000"}, {"n": "GOBIERNO DEL ESTADO DE MEXICO, INSTITUTO MEXIQUENSE DE LA INFRAESTRUCTURA FISICA EDUCATIVA", "c": "1120-1595-0000-0000"}, {"n": "EXPLOMAR", "c": "1120-1587-0000-0000"}, {"n": "PEREZ MARTINEZ RICARDO ARMANDO", "c": "1120-1618-0000-0000"}, {"n": "PMR ARQUITECTOS SA DE CV", "c": "1120-1625-0000-0000"}, {"n": "INALMET DE MEXICO SA DE CV", "c": "1120-1624-0000-0000"}, {"n": "GALEANA TORRES MARIA DEL ROCIO", "c": "1120-1626-0000-0000"}, {"n": "BERNAL MARTINEZ RAFAEL", "c": "1120-1616-0000-0000"}, {"n": "PARKS CONCENTRADORA, S.A. DE C.V.", "c": "1120-1608-0000-0000"}, {"n": "GRUPO FORESTAL IND. MEXICANO CORPORATIVO SA DE CV", "c": "1120-1604-0000-0000"}, {"n": "LUESTE OPERACIONES", "c": "1120-1623-0000-0000"}, {"n": "SECRETARIA DE COMUNICACIONES Y TRANSPORTES, CENTRO S.C.T., GUERRERO", "c": "1120-1614-0000-0000"}, {"n": "KEY CAPITAL S.A.P.I. DE C.V.", "c": "1120-1615-0000-0000"}, {"n": "MUNICIPIO DE MORELIA MICH.", "c": "1120-1621-0000-0000"}, {"n": "PODER EJECUTIVO DEL ESTADO DE CAMPECHE", "c": "1120-1628-0000-0000"}, {"n": "HERNANDEZ MARTINEZ EDUARDO", "c": "1120-1589-0000-0000"}, {"n": "VITE HERNANDEZ JESUS", "c": "1120-1617-0000-0000"}, {"n": "GAB INFRAESTRUCTURA", "c": "1120-1574-0000-0000"}, {"n": "PROVANOMIC", "c": "1120-1603-0000-0000"}, {"n": "MULTISERVICIOS MADROÑO, S.A. DE C.V.", "c": "1120-1629-0000-0000"}, {"n": "MONTESINOS GOMEZ LINO HUMBERTO", "c": "1120-1620-0000-0000"}, {"n": "VELAZQUEZ MARTINEZ MARIA DE JESUS", "c": "1120-1630-0000-0000"}, {"n": "URBANIKONSTRUCCIONES GRAYCOLORS SA DE CV", "c": "1120-1570-0000-0000"}, {"n": "MONETERO MORALES OLIMPO JOSE", "c": "1120-1632-0000-0000"}, {"n": "HERNANDEZ CORDERO JORGE", "c": "1120-1631-0000-0000"}, {"n": "SANCHEZ MENDOZA JOSE MARTIN", "c": "1120-1609-0000-0000"}, {"n": "TOVAR RODRIGUEZ ISRAEL", "c": "1120-1633-0000-0000"}, {"n": "CONSTRUCCIONES  KEDPA, S.A. DE C.V.", "c": "1120-1634-0000-0000"}, {"n": "TORRES MENDEZ CAROLINA", "c": "1120-1599-0000-0000"}, {"n": "ROSAS BOLAÑOS SOLIO ALEJANDRO", "c": "1120-1635-0000-0000"}, {"n": "PATIÑO ESCOBEDO JESSICA GUADALUPE", "c": "1120-1636-0000-0000"}, {"n": "CONSTRUCCIONES HEMI DEL NORTE", "c": "1120-1637-0000-0000"}, {"n": "CARLOS ALFREDO VERGARA GONZALEZ", "c": "1120-1640-0000-0000"}, {"n": "RSV VISION EMPRESARIAL SC", "c": "1120-1641-0000-0000"}, {"n": "CARREBO SA DE CV", "c": "1120-1638-0000-0000"}, {"n": "DE LA BORDA TORRES ISRAEL", "c": "1120-1642-0000-0000"}, {"n": "GRUPO CONSTRUCTOR INTELLIGENT MAVICMEX SA DE CV", "c": "1120-1643-0000-0000"}, {"n": "GUERRA PONCE CARLOS OMAR", "c": "1120-1644-0000-0000"}, {"n": "DE LA BORDA TORRES ISRAEL", "c": "1120-1642-0000-0000"}, {"n": "INSTITUTO LOCAL DE LA INFRAESTRUCTURA FISICA EDUCATIVA DEL DISTRITO FEDERAL", "c": "1120-1627-0000-0000"}, {"n": "MA MERCED OLIVARES ROBLES", "c": "1120-1639-0000-0000"}, {"n": "RSC VISION EMPRESARIAL SC", "c": "1120-1641-0000-0000"}, {"n": "CONCRETOS PILARES SA DE CV", "c": "1120-1645-0000-0000"}, {"n": "SOLUCIONES EN INGENIERIA Y TECNOLOGIAS DEL AGUA SA DE CV", "c": "1120-1646-0000-0000"}, {"n": "OTROS PRODUCTOS", "c": "8201-0001-0000-0000"}, {"n": "JESUS ELIAS MALDONADO ARAUJO", "c": "1120-1647-0000-0000"}, {"n": "CONSTRUCTORA E IMPULSORA CONDOR", "c": "1120-1648-0000-0000"}, {"n": "OMAR MARTINEZ JIMENEZ", "c": "1120-1649-0000-0000"}, {"n": "IMPULSORA DE PROYECTOS Y MATERIALES CSM", "c": "1120-1650-0000-0000"}, {"n": "PIGMACOLOR", "c": "1120-1651-0000-0000"}, {"n": "MA EUGENIA CRUZ PEREZ", "c": "1120-1652-0000-0000"}, {"n": "OCTAVIO GINEZ MOZO", "c": "1120-1653-0000-0000"}, {"n": "ALVARO ADAN CRUZ LOPEZ", "c": "1120-1654-0000-0000"}, {"n": "LAMAT INFRAESTRUCTURA Y OBRAS MARITIMAS", "c": "1120-1656-0000-0000"}, {"n": "FERNANDO DEL VALLE MARTINEZ", "c": "1120-1655-0000-0000"}, {"n": "BODEGA CRUZ AZUL DEL CENTRO", "c": "1120-1657-0000-0000"}, {"n": "JONATHAN ELIHU PLATAS CORTINA", "c": "1120-1658-0000-0000"}, {"n": "MARIA DE LOURDES HERNANDEZ MEZA", "c": "1120-1664-0000-0000"}, {"n": "VICTOR MANUEL OSNAYA RIVERA", "c": "1120-1665-0000-0000"}, {"n": "PLASTICOS TAURO DEL SUR", "c": "1120-1662-0000-0000"}, {"n": "JOSE DE JESUS LARA CASTREJON", "c": "1120-1663-0000-0000"}, {"n": "MARTIN JAVIER HERNANDEZ AGUILAR", "c": "1120-1660-0000-0000"}, {"n": "GRUPO OLSA DESARROLLO E INFRAESTRUCTURA", "c": "1120-1661-0000-0000"}, {"n": "FIDEL VAZQUEZ DOMINGUEZ", "c": "1120-1659-0000-0000"}, {"n": "INMOBILIARIA CANOPUS", "c": "1120-1666-0000-0000"}, {"n": "PREMEZCLADO EN SITIO", "c": "1120-0502-0000-0000"}, {"n": "MOMAJAAMA SA DE CV", "c": "1120-1585-0000-0000"}, {"n": "CORPORATIVO MARFORT", "c": "1120-1669-0000-0000"}, {"n": "SUMINISTROS PARA LA CONSTRUCCION Y VIVIENDA", "c": "1120-1670-0000-0000"}, {"n": "EFRAIN ORTIZ SUAREZ", "c": "1120-1592-0000-0000"}, {"n": "HUGO JUAREZ PASTRANA", "c": "1120-1675-0000-0000"}, {"n": "CONCRETOS ARSO", "c": "1120-1678-0000-0000"}, {"n": "TRITUASFALTOS", "c": "1120-1668-0000-0000"}, {"n": "CESAR DE LA CRUZ DIONICIO", "c": "1120-1672-0000-0000"}, {"n": "SANTIAGO TOMAS RODRIGUEZ CASTILLO", "c": "1120-1673-0000-0000"}, {"n": "OSCAR MENDOZA HERNANDEZ", "c": "1120-1674-0000-0000"}, {"n": "CAL DE APASCO", "c": "1120-1667-0000-0000"}, {"n": "VERGARA GONZALEZ EDGAR FERNANDO", "c": "1120-1199-0000-0000"}, {"n": "CONSTRUCCIONES CONACSA", "c": "1120-0799-0000-0000"}, {"n": "GROUP TS4 DE MEXICO", "c": "1120-1679-0000-0000"}, {"n": "DIAZ HERNANDEZ ABRIL ABIGAIL", "c": "1120-1685-0000-0000"}, {"n": "COMERCIALIZADORA UNIVERSAL LATAM", "c": "1120-1683-0000-0000"}, {"n": "DIANA PAOLA DIAZ CEDILLO", "c": "1120-1686-0000-0000"}, {"n": "WILEBALDO HERNANDEZ AGUILAR", "c": "1120-1680-0000-0000"}, {"n": "GRUPO CONSTRUCTOR HYCLAM", "c": "1120-1681-0000-0000"}, {"n": "CONCRETOS KARYMA", "c": "1120-1682-0000-0000"}, {"n": "ESTEBAN MOZO OLVERA", "c": "1120-1684-0000-0000"}, {"n": "GRUPO CONSTRUCTOR ALESAM", "c": "1120-1569-0000-0000"}, {"n": "PREMEZCLADOS Y MATERIALES SRI", "c": "1120-1687-0000-0000"}, {"n": "GUTGAR TRANSPORTES", "c": "1120-1688-0000-0000"}, {"n": "ARTURO LINARES BELTRAN", "c": "1120-1689-0000-0000"}, {"n": "COMPAÑIA DELTA LATINOAMERICA", "c": "1120-1690-0000-0000"}, {"n": "URBANIKONSTRUCCIONES GRAYCOLORS", "c": "1120-1570-0000-0000"}, {"n": "CAROLINA YURITZI GUTIERREZ REYES", "c": "1120-1693-0000-0000"}, {"n": "DISTRIBUCION DISEÑO Y ELABORACION DE CONCRETO DE ALTA RESISTENCIA", "c": "1120-1449-0000-0000"}, {"n": "GARCIA GRANADOS MAURICIO", "c": "1120-1563-0000-0000"}, {"n": "CONSTRUCTORA RUSVA SA DE CV", "c": "1120-1178-0000-0000"}, {"n": "JOSE GERMAN FIGUEROA CAMACHO", "c": "1120-0050-0000-0000"}, {"n": "GALEANA TORRES MARIA DEL ROCIO", "c": "1120-1626-0000-0000"}, {"n": "BERNAL MARTINEZ RAFAEL", "c": "1120-1616-0000-0000"}, {"n": "GARCIA GRANADOS MAURICIO", "c": "1120-1563-0000-0000"}, {"n": "VARETA MEXICO", "c": "1120-1692-0000-0000"}, {"n": "YEO Y CONSTRUCTORES", "c": "1120-1691-0000-0000"}, {"n": "AAB GRUPO DE INGENIEROS CIVILES", "c": "1120-1840-0000-0000"}, {"n": "JOSE EDUARDO ESCAMILLA RAMIREZ", "c": "1120-1838-0000-0000"}, {"n": "CEMENTO MIC SA DE CV", "c": "1120-1839-0000-0000"}, {"n": "CORPORATIVO SLAI MEXICO", "c": "1120-1698-0000-0000"}, {"n": "GOBIERNO DEL ESTADO DE MEXICO INSTITUTO MEXIQUENSE DE LA INFRAESTRUCTURA FISICA EDUCATIVA", "c": "1120-1595-0000-0000"}, {"n": "ANA CECILIA CASILLAS GONZALEZ", "c": "1120-1699-0000-0000"}, {"n": "MOISES JUAREZ MORALES", "c": "1120-1700-0000-0000"}, {"n": "PREMEZCLADOS Y MATERIALES SRI", "c": "1120-1687-0000-0000"}, {"n": "JUAN DE JESUS ORTEGA HERNANDEZ", "c": "1120-1701-0000-0000"}, {"n": "DESARROLLADORA Y CONSTRUCTORA JAROD", "c": "1120-1852-0000-0000"}, {"n": "VELAZQUEZ GIBRALTAR ESTEFANY", "c": "1120-1846-0000-0000"}, {"n": "MARTINEZ ROMERO CRISTIAN", "c": "1120-1446-0000-0000"}, {"n": "MAQUINARIA Y AGREGADOS JASSCA", "c": "1120-1706-0000-0000"}, {"n": "TRITURACIONES MONROY GUEL SA DE CV", "c": "1120-1214-0000-0000"}, {"n": "KARAM VON BERTRAB RICARDO EDMUNDO", "c": "1120-1519-0000-0000"}, {"n": "CONCRETOS DE ALTA TECNOLOGIA", "c": "1120-1702-0000-0000"}, {"n": "GORDILLO GORDILLO JUAN DANIEL", "c": "1120-1842-0000-0000"}, {"n": "NERI AMARO JACINTO", "c": "1120-1849-0000-0000"}, {"n": "HERNANDEZ ALVARADO JOSE ALFREDO", "c": "1120-1847-0000-0000"}, {"n": "SCAMPER SERVICIOS", "c": "1120-1848-0000-0000"}, {"n": "CONSTRUCTORA TEGEO", "c": "1120-1850-0000-0000"}, {"n": "CAMACHO SANCHEZ LAURA", "c": "1120-1358-0000-0000"}, {"n": "CAC", "c": "1120-1853-0000-0000"}, {"n": "PROFIQ SA DE CV", "c": "1120-1310-0000-0000"}, {"n": "ISLAS CABELLO RENE", "c": "1120-1854-0000-0000"}, {"n": "VELAZQUEZ GIBRALTAR ESTEFANY", "c": "1120-1846-0000-0000"}, {"n": "MATERIALES Y ACARREOS ZITRO SA DE CV", "c": "1120-1441-0000-0000"}, {"n": "MATERIAL PARA LA CONSTRUCCION CRG", "c": "1120-1708-0000-0000"}, {"n": "AGUILAR ROJO HERIBERTO", "c": "1120-0884-0000-0000"}, {"n": "DIAZ GALEANA JOSUE LIBORIO", "c": "1120-1222-0000-0000"}, {"n": "LOPEZ ROJAS FRANCISCO OSCAR", "c": "1120-1855-0000-0000"}, {"n": "VILLALOBOS VALENCIA RICARDO", "c": "1120-1856-0000-0000"}, {"n": "ESMA INSTALACIONES", "c": "1120-1857-0000-0000"}, {"n": "DESARROLLADORA PRAXI", "c": "1120-1851-0000-0000"}, {"n": "GRUPO ARCOM DE ORIENTE", "c": "1120-1694-0000-0000"}, {"n": "CRUZ AGUILAR CLEMENTE", "c": "1120-1858-0000-0000"}, {"n": "DIAZ MORALES FRANCISCO", "c": "1120-1859-0000-0000"}, {"n": "INGENIERIA Y CONSTRUCCION SAXUM INCO SA DE CV", "c": "1120-1860-0000-0000"}, {"n": "GINEZ SERRANO CAROL", "c": "1120-1861-0000-0000"}, {"n": "CONOPROYECT", "c": "1120-1862-0000-0000"}, {"n": "JUAREZ PASTRANA OSCAR", "c": "1120-1863-0000-0000"}, {"n": "SUAREZ MONZALVO JOSE", "c": "1120-1864-0000-0000"}, {"n": "GARCIA GARCIA SAUL", "c": "1120-1865-0000-0000"}, {"n": "LEYVA SAMANO GEOVANNI FRANCISCO", "c": "1120-1866-0000-0000"}, {"n": "SANCHEZ CRUZ HUGO VALENTE", "c": "1120-1867-0000-0000"}, {"n": "CAMPODONICO LEON ALESSIO", "c": "1120-1868-0000-0000"}, {"n": "GULIAS OTERO ALSIRA", "c": "1120-1869-0000-0000"}, {"n": "EDIFICAZ-CALIDRA", "c": "1120-1704-0000-0000"}, {"n": "FLETES MAQUINAS Y MOVIMIENTOS", "c": "1120-1870-0000-0000"}, {"n": "ARCE ARIZA J. JESUS", "c": "1120-1871-0000-0000"}, {"n": "BECERRA RAMIREZ MARIA PAULINA", "c": "1120-1872-0000-0000"}, {"n": "MATERIALES LA MINALLA", "c": "1120-1873-0000-0000"}, {"n": "GRUPO CONSTRUCTOR TCASA", "c": "1120-1874-0000-0000"}, {"n": "TRANSPORTES TERRESTRES PAFE", "c": "1120-1875-0000-0000"}, {"n": "MERLOS PEREZ DANIEL", "c": "1120-1612-0000-0000"}, {"n": "JUAREZ ROSALES MARCO ANTONIO", "c": "1120-1843-0000-0000"}, {"n": "CEVA SERVICIOS YMR", "c": "1120-1876-0000-0000"}, {"n": "VILLA LOGISTIC", "c": "1120-1877-0000-0000"}, {"n": "ADRIANA AMARANTA DIAZ CEDILLO", "c": "1120-1705-0000-0000"}, {"n": "TRANSPORTES VIRROM", "c": "1120-1878-0000-0000"}, {"n": "QL LABS", "c": "1120-1879-0000-0000"}, {"n": "MONTIEL MENDOZA MARILUZ", "c": "1120-1880-0000-0000"}, {"n": "SIKA MBCC MEXICANA", "c": "1120-1881-0000-0000"}, {"n": "ESTRADA SASTRE RUTILO", "c": "1120-1882-0000-0000"}, {"n": "CHAJOR SERVICIOS EMPRESARIALES", "c": "1120-1883-0000-0000"}, {"n": "LOPEZ CASTAÑEDA GONZALO", "c": "1120-1884-0000-0000"}, {"n": "ACEROS Y REFUERZOS DE OAXTEPEC", "c": "1120-1885-0000-0000"}, {"n": "GONZALEZ DEL CORRAL ALEJANDRO JACOME", "c": "1120-1886-0000-0000"}, {"n": "CAMACHO SOTO JORGE", "c": "1120-1887-0000-0000"}, {"n": "CONSTRUCTRADE DE MEXICO", "c": "1120-1888-0000-0000"}, {"n": "MAGPIC CONSTRUCTOR", "c": "1120-1889-0000-0000"}, {"n": "MOLIENDAS Y AGREGADOS DEL CRUCERO", "c": "1120-1890-0000-0000"}, {"n": "A.N.A COMPAÑÍA DE SEGUROS", "c": "1120-1707-0000-0000"}, {"n": "GUILLEN GOMEZ LUZ RUBI", "c": "1120-1892-0000-0000"}, {"n": "TRANSFORM-ARTE", "c": "1120-1891-0000-0000"}, {"n": "GOMEZ RAMIREZ BENITO CARLOS", "c": "1120-1893-0000-0000"}, {"n": "RESENDIZ VAZQUEZ JAVIER", "c": "1120-1894-0000-0000"}, {"n": "GARCIA MONTUFAR VICTORIA PRISCILA", "c": "1120-1895-0000-0000"}, {"n": "RODRIGUEZ VAZQUEZ JOSE ANGEL", "c": "1120-1896-0000-0000"}, {"n": "REAL RUIZ SARA", "c": "1120-1897-0000-0000"}, {"n": "INTEGRADORA DE TRANSPORTISTAS DE LA REPUBLICA MEXICANA", "c": "1120-1898-0000-0000"}, {"n": "PEREZ RIVERA JOSE FRANCISCO", "c": "1120-1899-0000-0000"}, {"n": "BLOCK Y CONCRETOS RIVIERAMAYA", "c": "1120-1900-0000-0000"}, {"n": "CEMENTOS Y ADHESIVOS H10", "c": "1120-1901-0000-0000"}, {"n": "HENRIQUEZ FERMAN JONATHAN", "c": "1120-1902-0000-0000"}, {"n": "ALANIS LUNA MA MIREYA", "c": "1120-1903-0000-0000"}, {"n": "SIKA MEXICANA", "c": "1120-1904-0000-0000"}, {"n": "GRANADOS GONZALEZ ADAN", "c": "1120-1905-0000-0000"}, {"n": "CONTRERAS COLIN ISMAEL", "c": "1120-1906-0000-0000"}, {"n": "GRUPO JURIDICO INMOBILIARIO DEL MILENIO", "c": "1120-1907-0000-0000"}, {"n": "JARDIN DE NIÑOS Y DEL UNIVERSO DE SNOOPY", "c": "1120-1908-0000-0000"}, {"n": "CONSTRUVIVIENDA TECNOLOGICAS", "c": "1120-1909-0000-0000"}, {"n": "VALADEZ HERNANDEZ MICHEL", "c": "1120-1910-0000-0000"}, {"n": "GRUPO BOSEMI", "c": "1120-1911-0000-0000"}, {"n": "CONCRETOS DE ACOLMAN", "c": "1120-1912-0000-0000"}, {"n": "ARELLANO OLVERA ELIZABETH", "c": "1120-1913-0000-0000"}, {"n": "PROYECTOS HORMIGON", "c": "1120-1914-0000-0000"}, {"n": "GARCIA GONZALEZ LUIS ALONSO", "c": "1120-1915-0000-0000"}, {"n": "NEGRETE MARTINEZ JUAN FERNANDO", "c": "1120-1916-0000-0000"}, {"n": "RUEDA ISLAS DULCE NOEMI", "c": "1120-1917-0000-0000"}, {"n": "IBAÑEZ ARIAS EDUARDO FELICIANO", "c": "1120-1918-0000-0000"}, {"n": "EDIFICACIONES PUBLICAS Y PRIVADAS VERMEX", "c": "1120-1919-0000-0000"}, {"n": "VALDEZ TELLEZ ANTOLIN", "c": "1120-1920-0000-0000"}, {"n": "GRUPO CATAN", "c": "1120-1921-0000-0000"}, {"n": "PEREZ RAMIREZ ISAI", "c": "1120-1596-0000-0000"}, {"n": "HORNOS Y TRITURADOS DEL SURESTE", "c": "1120-1922-0000-0000"}, {"n": "SURE SERVICIOS INDUSTRIALES", "c": "1120-1923-0000-0000"}, {"n": "MATERIALES CLOBE", "c": "1120-1924-0000-0000"}, {"n": "PROVEEDOR DE SERVICIOS CONSTRUCTIVOS. EJE", "c": "1120-1925-0000-0000"}, {"n": "BIRTO BORJA ANA ISABEL", "c": "1120-1926-0000-0000"}, {"n": "RESENDIZ CARBAJAL JAVIER", "c": "1120-1927-0000-0000"}, {"n": "GRUPO ANDALCER CONSTRUCTORA & INMOBILIARIA", "c": "1120-1928-0000-0000"}, {"n": "MENDEZ CHAPARRO DEISY GRISELDA", "c": "1120-1929-0000-0000"}, {"n": "VM&JV", "c": "1120-1930-0000-0000"}, {"n": "JUAREZ MEJIA MIGUEL", "c": "1120-1931-0000-0000"}, {"n": "CONCRECOSTA", "c": "1120-1932-0000-0000"}, {"n": "MCC RIVIERA EMPRESARIAL", "c": "1120-1933-0000-0000"}, {"n": "PROCESOS INDUSTRIALES ASFALTICOS", "c": "1120-1934-0000-0000"}, {"n": "SANCHEZ PEÑA MARGARITO", "c": "1120-1935-0000-0000"}, {"n": "ECO RECICLADOS ARCAN", "c": "1120-1936-0000-0000"}, {"n": "IMPORTCARGO MEXICO", "c": "1120-1937-0000-0000"}, {"n": "PREFABRICADOS SBT", "c": "1120-1938-0000-0000"}, {"n": "DIAZ GALEANA JESUS", "c": "1120-1939-0000-0000"}, {"n": "PEÑA GUZMAN EDUARDO", "c": "1120-1940-0000-0000"}, {"n": "MARQUEZ CRUZ PABLO DAVID", "c": "1120-1941-0000-0000"}, {"n": "GUTIERREZ SANCHEZ ULISES", "c": "1120-1942-0000-0000"}, {"n": "GARCIA DIAZ TORIBIO SULPICIO", "c": "1120-1943-0000-0000"}, {"n": "AHUMADA MARQUEZ LILIA", "c": "1120-1944-0000-0000"}, {"n": "GUTIERREZ GUERRERO RAFAEL", "c": "1120-1945-0000-0000"}];
+</script>
+<script>
+/* =========================================================================
+   Cobranza / Aplicación de depósitos — Sol Firma de Negocios
+   ========================================================================= */
+(function () {
+  'use strict';
+
+  const LS_KEYS = {
+    extraCat: 'sfn_cob_extraCat_v1',
+    bank: 'sfn_cob_bank_v1'
+  };
+
+  const ACCT_BANCO = '1110-0002-0000-0000';
+  const ACCT_IVA_FACTURADO = '2121-0001-0000-0000';
+  const ACCT_IVA_POR_PAGAR = '2121-0002-0000-0000';
+  const BLUE = 'FF00B0F0';
+  const MESES = ['ENERO', 'FEBRERO', 'MARZO', 'ABRIL', 'MAYO', 'JUNIO', 'JULIO',
+    'AGOSTO', 'SEPTIEMBRE', 'OCTUBRE', 'NOVIEMBRE', 'DICIEMBRE'];
+
+  /* ---------------- utilidades de texto ---------------- */
+  function stripAccents(s) { return s.normalize('NFD').replace(/[\u0300-\u036f]/g, ''); }
+  function norm(s) {
+    if (s == null) return '';
+    let t = stripAccents(String(s).replace(/\u00a0/g, ' ').toUpperCase());
+    t = t.replace(/[^A-Z0-9 ]/g, ' ');
+    return t.replace(/\s+/g, ' ').trim();
+  }
+  const STOP = new Set(['DEPOSITO', 'DEPOSIOT', 'DEPOSITOS', 'SA', 'DE', 'CV', 'S', 'A', 'C', 'V',
+    'EFECTIVO', 'TRANSFERENCIA', 'RL', 'SAPI', 'SC', 'DEL', 'LA', 'EL', 'LOS', 'LAS', 'Y']);
+  function toks(s) {
+    return norm(s).split(' ').filter(t => t.length > 2 && !STOP.has(t));
+  }
+  function levenshtein(a, b) {
+    const m = a.length, n = b.length;
+    if (Math.abs(m - n) > 2) return 99;
+    const dp = Array.from({ length: m + 1 }, () => new Array(n + 1).fill(0));
+    for (let i = 0; i <= m; i++) dp[i][0] = i;
+    for (let j = 0; j <= n; j++) dp[0][j] = j;
+    for (let i = 1; i <= m; i++)
+      for (let j = 1; j <= n; j++)
+        dp[i][j] = a[i - 1] === b[j - 1] ? dp[i - 1][j - 1]
+          : 1 + Math.min(dp[i - 1][j], dp[i][j - 1], dp[i - 1][j - 1]);
+    return dp[m][n];
+  }
+  function similarTok(a, b) {
+    if (a === b) return true;
+    return levenshtein(a, b) <= (a.length <= 5 ? 1 : 2);
+  }
+
+  /* ---------------- catálogo de clientes ---------------- */
+  function loadExtraCat() {
+    try { return JSON.parse(localStorage.getItem(LS_KEYS.extraCat) || '[]'); }
+    catch (e) { return []; }
+  }
+  function saveExtraCat(list) { localStorage.setItem(LS_KEYS.extraCat, JSON.stringify(list)); }
+
+  let CAT = [];
+  let catByExact, catByTokens;
+  function rebuildCatalog() {
+    CAT = CATALOG_DATA.concat(loadExtraCat());
+    catByExact = new Map();
+    catByTokens = new Map();
+    for (const e of CAT) {
+      const k = norm(e.n);
+      if (!catByExact.has(k)) catByExact.set(k, e);
+      const tk = toks(e.n).slice().sort().join(' ');
+      if (tk && !catByTokens.has(tk)) catByTokens.set(tk, e);
+    }
+  }
+
+  function lookupClient(name) {
+    const k = norm(name);
+    if (!k) return null;
+    if (catByExact.has(k)) return { ...catByExact.get(k), tier: 'exacto' };
+    const t = toks(name).slice().sort();
+    const tk = t.join(' ');
+    if (tk && catByTokens.has(tk)) return { ...catByTokens.get(tk), tier: 'orden' };
+    // difuso: mismo número de palabras y cada una parecida
+    for (const [ctk, entry] of catByTokens.entries()) {
+      const ct = ctk.split(' ');
+      if (ct.length !== t.length) continue;
+      let ok = true;
+      for (let i = 0; i < t.length; i++) {
+        if (!similarTok(t[i], ct[i])) { ok = false; break; }
+      }
+      if (ok) return { ...entry, tier: 'difuso' };
+    }
+    return null;
+  }
+
+  /* ---------------- fechas ---------------- */
+  function parseDateSafe(raw) {
+    if (raw == null || raw === '') return null;
+    if (raw instanceof Date) {
+      if (isNaN(raw.getTime())) return null;
+      return new Date(Date.UTC(raw.getUTCFullYear(), raw.getUTCMonth(), raw.getUTCDate()));
+    }
+    if (typeof raw === 'number') {
+      const d = new Date(Math.round((raw - 25569) * 86400 * 1000));
+      if (isNaN(d.getTime())) return null;
+      return new Date(Date.UTC(d.getUTCFullYear(), d.getUTCMonth(), d.getUTCDate()));
+    }
+    if (typeof raw === 'string') {
+      const s = raw.trim();
+      let m = s.match(/^(\d{4})-(\d{2})-(\d{2})/);
+      if (m) return new Date(Date.UTC(+m[1], +m[2] - 1, +m[3]));
+      m = s.match(/^(\d{1,2})\/(\d{1,2})\/(\d{4})$/);
+      if (m) return new Date(Date.UTC(+m[3], +m[2] - 1, +m[1]));
+      const nat = new Date(s);
+      if (!isNaN(nat.getTime())) return new Date(Date.UTC(nat.getFullYear(), nat.getMonth(), nat.getDate()));
+    }
+    return null;
+  }
+  function dkey(d) { return d ? d.toISOString().slice(0, 10) : ''; }
+  function excelSerial(d) { return Math.round((d.getTime() - Date.UTC(1899, 11, 30)) / 86400000); }
+  function fmtDay(d) {
+    return String(d.getUTCDate()).padStart(2, '0') + '/' +
+      String(d.getUTCMonth() + 1).padStart(2, '0') + '/' + d.getUTCFullYear();
+  }
+
+  /* ---------------- lectura de archivos ---------------- */
+  // Los .xls del sistema son en realidad XML (SpreadsheetML). Si SheetJS falla,
+  // se parsea el XML directamente.
+  function readAnyToRows(arrayBuffer, fileName) {
+    const bytes = new Uint8Array(arrayBuffer);
+    let head = '';
+    for (let i = 0; i < Math.min(bytes.length, 200); i++) head += String.fromCharCode(bytes[i]);
+    const isXml = head.indexOf('<?xml') >= 0 || head.indexOf('<Workbook') >= 0;
+
+    if (isXml) {
+      try { return parseXmlSS(new TextDecoder('utf-8').decode(bytes)); }
+      catch (e) { /* cae a SheetJS */ }
+    }
+    const wb = XLSX.read(bytes, { type: 'array', cellDates: false });
+    const out = {};
+    for (const name of wb.SheetNames) {
+      out[name] = XLSX.utils.sheet_to_json(wb.Sheets[name], { header: 1, raw: true, defval: null });
+    }
+    return out;
+  }
+
+  function parseXmlSS(text) {
+    const doc = new DOMParser().parseFromString(text, 'application/xml');
+    if (doc.getElementsByTagName('parsererror').length) throw new Error('XML inválido');
+    const NS = 'urn:schemas-microsoft-com:office:spreadsheet';
+    const out = {};
+    const sheets = doc.getElementsByTagNameNS(NS, 'Worksheet');
+    for (let s = 0; s < sheets.length; s++) {
+      const ws = sheets[s];
+      const name = ws.getAttributeNS(NS, 'Name') || ('Hoja' + (s + 1));
+      const tables = ws.getElementsByTagNameNS(NS, 'Table');
+      if (!tables.length) continue;
+      const rowsEl = tables[0].getElementsByTagNameNS(NS, 'Row');
+      const rows = [];
+      for (let r = 0; r < rowsEl.length; r++) {
+        const cellsEl = rowsEl[r].getElementsByTagNameNS(NS, 'Cell');
+        const row = [];
+        let idx = 0;
+        for (let c = 0; c < cellsEl.length; c++) {
+          const cell = cellsEl[c];
+          const ix = cell.getAttributeNS(NS, 'Index');
+          if (ix) idx = parseInt(ix, 10) - 1;
+          const dataEl = cell.getElementsByTagNameNS(NS, 'Data')[0];
+          let val = dataEl ? dataEl.textContent : null;
+          const type = dataEl ? dataEl.getAttributeNS(NS, 'Type') : null;
+          if (type === 'Number' && val != null && val !== '') val = Number(val);
+          while (row.length < idx) row.push(null);
+          row.push(val);
+          idx++;
+        }
+        rows.push(row);
+      }
+      out[name] = rows;
+    }
+    return out;
+  }
+
+  function findHeaderRow(rows, required) {
+    for (let r = 0; r < Math.min(rows.length, 30); r++) {
+      const cells = (rows[r] || []).map(v => norm(v));
+      if (required.every(h => cells.some(c => c === norm(h)))) return r;
+    }
+    return -1;
+  }
+  function colIndex(headerRow, name) {
+    const target = norm(name);
+    for (let i = 0; i < headerRow.length; i++) {
+      if (norm(headerRow[i]) === target) return i;
+    }
+    return -1;
+  }
+
+  /* ---------------- parseo: DEPOSITOS ---------------- */
+  function parseDepositos(sheets) {
+    const req = ['FECHA', 'CONCEPTO', 'DEPOSITO'];
+    for (const name in sheets) {
+      const rows = sheets[name];
+      const hr = findHeaderRow(rows, req);
+      if (hr < 0) continue;
+      const H = rows[hr];
+      const iF = colIndex(H, 'FECHA'), iC = colIndex(H, 'CONCEPTO'),
+        iCta = colIndex(H, 'CUENTA CLIENTE'), iD = colIndex(H, 'DEPOSITO');
+      const out = [];
+      for (let r = hr + 1; r < rows.length; r++) {
+        const row = rows[r] || [];
+        const fecha = parseDateSafe(row[iF]);
+        const monto = Number(row[iD]);
+        if (!fecha || !isFinite(monto)) continue;
+        out.push({
+          idx: out.length,
+          srcRow: r,
+          fecha,
+          concepto: row[iC] == null ? '' : String(row[iC]).replace(/\u00a0/g, ' ').trim(),
+          ctaCliente: row[iCta] == null ? '' : String(row[iCta]).replace(/\u00a0/g, ' ').trim(),
+          monto
+        });
+      }
+      return { rows, headerRow: hr, deposits: out, sheetName: name };
+    }
+    throw new Error('En el archivo de DEPÓSITOS no encontré los encabezados FECHA / CONCEPTO / DEPOSITO.');
+  }
+
+  /* ---------------- parseo: PAGOS APLICADOS ---------------- */
+  function parsePagos(sheets) {
+    const req = ['no cuenta', 'fecha deposito', 'razon social', 'importe aplicado', 'no factura', 'aplicado'];
+    for (const name in sheets) {
+      const rows = sheets[name];
+      const hr = findHeaderRow(rows, req);
+      if (hr < 0) continue;
+      const H = rows[hr];
+      const i = {
+        cuenta: colIndex(H, 'no cuenta'),
+        fecha: colIndex(H, 'fecha deposito'),
+        razon: colIndex(H, 'razon social'),
+        importe: colIndex(H, 'importe aplicado'),
+        tipo: colIndex(H, 'tipofactura'),
+        nofact: colIndex(H, 'no factura'),
+        aplicado: colIndex(H, 'aplicado')
+      };
+      const out = [];
+      for (let r = hr + 1; r < rows.length; r++) {
+        const row = rows[r] || [];
+        const fecha = parseDateSafe(row[i.fecha]);
+        const importe = Number(row[i.importe]);
+        const aplicado = Number(row[i.aplicado]);
+        if (!fecha || !isFinite(importe)) continue;
+        out.push({
+          srcRow: r,
+          cuenta: String(row[i.cuenta] == null ? '' : row[i.cuenta]).trim(),
+          fecha,
+          razon: String(row[i.razon] == null ? '' : row[i.razon]).trim(),
+          importe,
+          tipo: String(row[i.tipo] == null ? '' : row[i.tipo]).trim(),
+          nofact: String(row[i.nofact] == null ? '' : row[i.nofact]).trim(),
+          aplicado: isFinite(aplicado) ? aplicado : 0
+        });
+      }
+      return { rows, headerRow: hr, pagos: out, sheetName: name };
+    }
+    throw new Error('En el archivo de PAGOS APLICADOS no encontré los encabezados esperados (no cuenta, razon social, importe aplicado, aplicado...).');
+  }
+
+  /* ---------------- parseo: VENTAS DE MOSTRADOR ---------------- */
+  function parseMostrador(sheets) {
+    const req = ['No. Fact.', 'Total'];
+    for (const name in sheets) {
+      const rows = sheets[name];
+      const hr = findHeaderRow(rows, req);
+      if (hr < 0) continue;
+      const H = rows[hr];
+      const iN = colIndex(H, 'No. Fact.'), iT = colIndex(H, 'Total'),
+        iF = colIndex(H, 'Fecha'), iR = colIndex(H, 'Razón Social');
+      const out = [];
+      for (let r = hr + 1; r < rows.length; r++) {
+        const row = rows[r] || [];
+        const total = Number(row[iT]);
+        const nofact = row[iN];
+        if (!nofact || !isFinite(total)) continue;
+        out.push({
+          srcRow: r,
+          nofact: String(nofact).trim(),
+          total,
+          fecha: parseDateSafe(row[iF]),
+          razon: String(row[iR] == null ? '' : row[iR]).trim()
+        });
+      }
+      return { rows, headerRow: hr, ventas: out, sheetName: name };
+    }
+    throw new Error('En el archivo de VENTAS DE MOSTRADOR no encontré los encabezados "No. Fact." y "Total".');
+  }
+
+  /* ---------------- agrupar pagos aplicados ---------------- */
+  // Cada grupo = un depósito. Las filas que comparten cuenta+fecha+cliente+"importe
+  // aplicado" son un mismo depósito repartido entre varias facturas.
+  function groupPagos(pagos, bank, useRemisiones) {
+    const groups = new Map();
+    for (const p of pagos) {
+      if (bank && p.cuenta !== bank) continue;
+      const esFactura = norm(p.tipo).indexOf('FACTURA') === 0;
+      if (!esFactura && !useRemisiones) continue;
+      const key = [p.cuenta, dkey(p.fecha), norm(p.razon), p.importe.toFixed(2)].join('|');
+      if (!groups.has(key)) {
+        groups.set(key, {
+          key, cuenta: p.cuenta, fecha: p.fecha, razon: p.razon,
+          importe: p.importe, tipo: p.tipo, facturas: []
+        });
+      }
+      groups.get(key).facturas.push(p);
+    }
+    const out = [...groups.values()];
+    for (const g of out) {
+      g.facturas.sort((a, b) => String(a.nofact).localeCompare(String(b.nofact), undefined, { numeric: true }));
+    }
+    return out;
+  }
+
+  /* ---------------- emparejar depósitos ---------------- */
+  function matchDeposits(deposits, pagoGroups, ventas, opts) {
+    const tol = opts.tolerancia;
+    const usedG = new Set(), usedV = new Set();
+    const results = [];
+
+    for (const d of deposits) {
+      const dt = toks(d.concepto);
+      const dk = dkey(d.fecha);
+
+      // 1) Pagos aplicados: misma fecha + monto dentro de la tolerancia
+      let best = null;
+      for (const g of pagoGroups) {
+        if (usedG.has(g.key)) continue;
+        if (dkey(g.fecha) !== dk) continue;
+        const diff = Math.abs(g.importe - d.monto);
+        if (diff > tol) continue;
+        const gt = toks(g.razon);
+        const nameHit = dt.some(t => gt.some(u => similarTok(t, u))) ? 1 : 0;
+        const score = [-nameHit, diff];
+        if (!best || score[0] < best.score[0] || (score[0] === best.score[0] && score[1] < best.score[1])) {
+          best = { g, diff, score, nameHit };
+        }
+      }
+      if (best) {
+        usedG.add(best.g.key);
+        const cli = lookupClient(best.g.razon);
+        results.push({
+          dep: d, tipo: 'PA', grupo: best.g, diff: best.diff,
+          nameHit: !!best.nameHit,
+          clienteNombre: (cli ? cli.n : best.g.razon).toUpperCase(),
+          clienteCuenta: cli ? cli.c : null,
+          clienteTier: cli ? cli.tier : null
+        });
+        continue;
+      }
+
+      // 2) Ventas de mostrador: solo monto (la fecha de la factura no coincide)
+      let bv = null;
+      for (const v of ventas) {
+        if (usedV.has(v.srcRow)) continue;
+        const diff = Math.abs(v.total - d.monto);
+        if (diff > tol) continue;
+        if (!bv || diff < bv.diff) bv = { v, diff };
+      }
+      if (bv) {
+        usedV.add(bv.v.srcRow);
+        const cli = lookupClient('VENTAS DE MOSTRADOR');
+        results.push({
+          dep: d, tipo: 'VM', venta: bv.v, diff: bv.diff,
+          clienteNombre: 'VENTAS DE MOSTRADOR',
+          clienteCuenta: cli ? cli.c : null,
+          clienteTier: cli ? cli.tier : null
+        });
+        continue;
+      }
+
+      results.push({ dep: d, tipo: 'NA' });
+    }
+    return { results, usedG, usedV };
+  }
+
+  /* ---------------- construcción del libro ---------------- */
+  const CUR = '_-* #,##0.00_-;\\-* #,##0.00_-;_-* "-"??_-;_-@';
+  const FONT = { fontFamily: 'Calibri', fontSize: 11 };
+
+  function buildFormatoSheet(sheet, results, opts) {
+    const widths = { A: 11.3, B: 18.9, C: 7.6, D: 9.3, E: 10.3, F: 8, G: 7.6, H: 32.3,
+      I: 14.9, J: 19.9, K: 15.7, L: 22.3, M: 16.1, N: 19.6 };
+    for (const c in widths) sheet.column(c).width(widths[c]);
+
+    sheet.cell('A1').value(opts.empresa).style({ ...FONT, bold: true });
+    sheet.cell('A2').value(opts.titulo).style({ ...FONT, bold: true });
+    sheet.cell('A3').value(ACCT_BANCO).style(FONT);
+    sheet.cell('H3').value(opts.etiquetaBanco).style({ ...FONT, bold: true });
+
+    const HDR = ['FECHA', 'CTA CONTABLE', 'Cuenta', 'Scta', 'SSCta', 'SSSCta', 'SSSCta', 'CLIENTE',
+      'REFERENCIA', 'DEPOSITOS (DEBE)', 'FACTURAS (HABER)', 'IVA', 'IVA RET', 'BASE'];
+    const hdrStyle = { ...FONT, bold: true, fill: 'FF00B050', horizontalAlignment: 'center' };
+    HDR.forEach((h, i) => sheet.cell(4, i + 1).value(h).style(hdrStyle));
+
+    function splitCells(r) {
+      sheet.cell('C' + r).formula(`+MID(B${r},1,4)`).style(FONT);
+      sheet.cell('D' + r).formula(`+MID(B${r},6,4)`).style(FONT);
+      sheet.cell('E' + r).formula(`+MID(B${r},11,4)`).style(FONT);
+      sheet.cell('F' + r).formula(`+MID(B${r},16,4)`).style(FONT);
+      sheet.cell('G' + r).value('0000').style(FONT);
+    }
+
+    let r = 5;
+    const firstDataRow = r;
+    for (const res of results) {
+      const d = res.dep;
+      const depRow = r;
+
+      // --- fila del depósito (azul) ---
+      sheet.cell('A' + depRow).value(excelSerial(d.fecha)).style({ ...FONT, numberFormat: 'dd/mm/yyyy' });
+      sheet.cell('B' + depRow).value(ACCT_BANCO).style(FONT);
+      splitCells(depRow);
+      sheet.cell('J' + depRow).value(d.monto).style({ ...FONT, numberFormat: CUR });
+      sheet.cell('L' + depRow).formula(`J${depRow}/1.16*0.16`).style({ ...FONT, numberFormat: CUR });
+      sheet.cell('N' + depRow).formula(`J${depRow}/1.16`).style({ ...FONT, numberFormat: CUR });
+
+      let facturaRows = [];
+      let refDeposito = '';
+
+      if (res.tipo === 'PA') {
+        const g = res.grupo;
+        refDeposito = g.facturas.length === 1 ? g.facturas[0].nofact : '';
+        sheet.cell('H' + depRow).value(res.clienteNombre).style(FONT);
+        if (refDeposito) sheet.cell('I' + depRow).value(numOrText(refDeposito)).style(FONT);
+        r++;
+        for (const f of g.facturas) {
+          sheet.cell('B' + r).value(res.clienteCuenta || '???').style(FONT);
+          splitCells(r);
+          sheet.cell('H' + r).value(String(g.razon).toUpperCase()).style(FONT);
+          sheet.cell('I' + r).value(numOrText(f.nofact)).style(FONT);
+          sheet.cell('K' + r).value(round2(f.aplicado)).style({ ...FONT, numberFormat: CUR });
+          facturaRows.push(r);
+          r++;
+        }
+      } else if (res.tipo === 'VM') {
+        const v = res.venta;
+        refDeposito = v.nofact;
+        sheet.cell('H' + depRow).value('VENTAS DE MOSTRADOR').style(FONT);
+        sheet.cell('I' + depRow).value(numOrText(refDeposito)).style(FONT);
+        r++;
+        sheet.cell('B' + r).value(res.clienteCuenta || '???').style(FONT);
+        splitCells(r);
+        sheet.cell('H' + r).value('VENTAS DE MOSTRADOR').style(FONT);
+        sheet.cell('I' + r).value(numOrText(v.nofact)).style(FONT);
+        sheet.cell('K' + r).value(round2(v.total)).style({ ...FONT, numberFormat: CUR });
+        facturaRows.push(r);
+        r++;
+      } else {
+        sheet.cell('H' + depRow).value('???').style(FONT);
+        sheet.cell('I' + depRow).value('???').style(FONT);
+        r++;
+        ['B', 'C', 'D', 'E', 'F', 'G', 'H', 'I'].forEach(c => sheet.cell(c + r).value('???').style(FONT));
+        sheet.cell('K' + r).value('???').style(FONT);
+        r++;
+      }
+
+      // --- IVA FACTURADO ---
+      const ivaRow = r;
+      sheet.cell('B' + ivaRow).value(ACCT_IVA_FACTURADO).style(FONT);
+      splitCells(ivaRow);
+      sheet.cell('H' + ivaRow).value('IVA FACTURADO').style(FONT);
+      if (refDeposito) sheet.cell('I' + ivaRow).value(numOrText(refDeposito)).style(FONT);
+      else if (res.tipo === 'NA') sheet.cell('I' + ivaRow).value('???').style(FONT);
+      if (facturaRows.length) {
+        const sum = facturaRows.map(x => 'K' + x).join('+');
+        sheet.cell('J' + ivaRow).formula(`(${sum})/1.16*0.16`).style({ ...FONT, numberFormat: CUR });
+      } else {
+        sheet.cell('J' + ivaRow).value('???').style(FONT);
+      }
+      r++;
+
+      // --- IVA POR PAGAR COBRADO ---
+      const ppRow = r;
+      sheet.cell('B' + ppRow).value(ACCT_IVA_POR_PAGAR).style(FONT);
+      splitCells(ppRow);
+      sheet.cell('H' + ppRow).value('IVA POR PAGAR COBRADO').style(FONT);
+      if (refDeposito) sheet.cell('I' + ppRow).value(numOrText(refDeposito)).style(FONT);
+      else if (res.tipo === 'NA') sheet.cell('I' + ppRow).value('???').style(FONT);
+      if (facturaRows.length) {
+        sheet.cell('K' + ppRow).formula(`+J${ivaRow}`).style({ ...FONT, numberFormat: CUR });
+      } else {
+        sheet.cell('K' + ppRow).value('???').style(FONT);
+      }
+      r++;
+
+      // pintar de azul la fila del depósito
+      for (let c = 1; c <= 14; c++) {
+        sheet.cell(depRow, c).style({ fill: BLUE });
+      }
+    }
+
+    const lastRow = r - 1;
+    sheet.cell('J3').formula(
+      `SUMIF(B${firstDataRow}:B${lastRow},"${ACCT_BANCO}",J${firstDataRow}:J${lastRow})`
+    ).style({ ...FONT, bold: true, numberFormat: CUR });
+    try { sheet.freezePanes(0, 4); } catch (e) { /* no-op */ }
+    return lastRow;
+  }
+
+  function numOrText(v) {
+    const s = String(v == null ? '' : v).trim();
+    if (s === '') return '';
+    return /^\d+$/.test(s) ? Number(s) : s;
+  }
+  function round2(n) { return Math.round((n + Number.EPSILON) * 100) / 100; }
+
+  // Copia una hoja original marcando de azul las filas usadas
+  function buildSourceSheet(sheet, rows, headerRow, usedRowSet, maxCols) {
+    const nCols = Math.min(maxCols || 30, Math.max(...rows.slice(0, 50).map(r => (r || []).length), 1));
+    for (let r = 0; r < rows.length; r++) {
+      const row = rows[r] || [];
+      const isHeader = r === headerRow;
+      const isUsed = usedRowSet.has(r);
+      for (let c = 0; c < nCols; c++) {
+        let v = row[c];
+        if (v == null || v === '') continue;
+        if (v instanceof Date) v = excelSerial(v);
+        const st = { ...FONT };
+        if (isHeader) st.bold = true;
+        if (isUsed) st.fill = BLUE;
+        sheet.cell(r + 1, c + 1).value(typeof v === 'number' ? v : String(v)).style(st);
+      }
+      if (isUsed) {
+        for (let c = 0; c < nCols; c++) sheet.cell(r + 1, c + 1).style({ fill: BLUE });
+      }
+    }
+    for (let c = 1; c <= nCols; c++) sheet.column(c).width(16);
+  }
+
+  async function generateOutput(opts) {
+    const { results, dep, pag, ven, usedG, usedV, bank } = opts;
+
+    const workbook = await XlsxPopulate.fromBlankAsync();
+    const sheetName = (bank || '').slice(-3) || 'FORMATO';
+    const main = workbook.sheet(0);
+    main.name(sheetName);
+    buildFormatoSheet(main, results, opts);
+
+    // filas usadas en cada fuente
+    const depUsed = new Set(results.filter(r => r.tipo !== 'NA').map(r => r.dep.srcRow));
+    const pagUsed = new Set();
+    for (const r of results) {
+      if (r.tipo === 'PA') for (const f of r.grupo.facturas) pagUsed.add(f.srcRow);
+    }
+    const venUsed = new Set(results.filter(r => r.tipo === 'VM').map(r => r.venta.srcRow));
+
+    buildSourceSheet(workbook.addSheet('DEPOSITOS'), dep.rows, dep.headerRow, depUsed, 6);
+    buildSourceSheet(workbook.addSheet('PAGOS APLICADOS'), pag.rows, pag.headerRow, pagUsed, 20);
+    buildSourceSheet(workbook.addSheet('VENTAS MOSTRADOR'), ven.rows, ven.headerRow, venUsed, 18);
+
+    // catálogo
+    const cs = workbook.addSheet('Hoja1');
+    CAT.forEach((e, i) => {
+      cs.cell(i + 1, 1).value(e.n).style(FONT);
+      cs.cell(i + 1, 2).value(e.c).style(FONT);
+    });
+    cs.column('A').width(45); cs.column('B').width(22);
+
+    try { workbook.activeSheet(sheetName); } catch (e) { /* no-op */ }
+    const blob = await workbook.outputAsync();
+    return { blob, sheetName };
+  }
+
+  window.CobranzaTool = {
+    norm, toks, lookupClient, rebuildCatalog, loadExtraCat, saveExtraCat,
+    parseDateSafe, dkey, fmtDay, readAnyToRows, parseXmlSS,
+    parseDepositos, parsePagos, parseMostrador,
+    groupPagos, matchDeposits, generateOutput, LS_KEYS, MESES
+  };
+})();
+
+</script>
+<script>
+(function () {
+  'use strict';
+  const banner = document.getElementById('libBanner');
+  banner.style.display = 'block';
+  banner.textContent = 'Cargando herramientas de Excel…';
+
+  window.LIBS_READY.then((ok) => {
+    if (!ok || typeof XLSX === 'undefined' || typeof XlsxPopulate === 'undefined') {
+      banner.textContent = 'No se pudieron cargar las librerías necesarias. Revisa tu conexión o prueba desde otra red — algunas redes de oficina bloquean estos CDNs.';
+      banner.className = 'status-line error';
+      return;
+    }
+    banner.style.display = 'none';
+    init();
+  });
+
+  function init() {
+    const T = window.CobranzaTool;
+    T.rebuildCatalog();
+
+    const $ = (id) => document.getElementById(id);
+    const els = {
+      step2: $('step2'), step3: $('step3'), step4: $('step4'),
+      parseStatus: $('parseStatus'), summaryGrid: $('summaryGrid'),
+      bankAcct: $('bankAcct'), bankHint: $('bankHint'), tolerancia: $('tolerancia'),
+      empresa: $('empresa'), titulo: $('titulo'), etiquetaBanco: $('etiquetaBanco'),
+      chkRemisiones: $('chkRemisiones'),
+      searchBox: $('searchBox'), fDesde: $('fDesde'), fHasta: $('fHasta'),
+      btnAll: $('btnAll'), btnNone: $('btnNone'), btnOnlyMatched: $('btnOnlyMatched'),
+      selCount: $('selCount'), depBody: $('depBody'),
+      btnGenerate: $('btnGenerate'), genStatus: $('genStatus')
+    };
+
+    const files = { dep: null, pag: null, ven: null };
+    let parsed = { dep: null, pag: null, ven: null };
+    let results = [];
+    let selected = new Set();
+
+    const money = (n) => (n || 0).toLocaleString('es-MX', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+    const esc = (s) => String(s == null ? '' : s).replace(/[&<>"']/g,
+      c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
+
+    /* ---------- carga de archivos ---------- */
+    [['dep', 'dzDep', 'fiDep', 'fnDep'], ['pag', 'dzPag', 'fiPag', 'fnPag'], ['ven', 'dzVen', 'fiVen', 'fnVen']]
+      .forEach(([key, dz, fi, fn]) => {
+        const zone = $(dz), input = $(fi), label = $(fn);
+        zone.addEventListener('dragover', e => { e.preventDefault(); zone.classList.add('drag'); });
+        zone.addEventListener('dragleave', () => zone.classList.remove('drag'));
+        zone.addEventListener('drop', e => {
+          e.preventDefault(); zone.classList.remove('drag');
+          if (e.dataTransfer.files.length) handleFile(key, e.dataTransfer.files[0], zone, label);
+        });
+        input.addEventListener('change', e => {
+          if (e.target.files.length) handleFile(key, e.target.files[0], zone, label);
+        });
+      });
+
+    function handleFile(key, file, zone, label) {
+      label.textContent = file.name;
+      const reader = new FileReader();
+      reader.onload = (e) => {
+        try {
+          files[key] = T.readAnyToRows(e.target.result, file.name);
+          zone.classList.add('loaded');
+          tryParseAll();
+        } catch (err) {
+          console.error(err);
+          zone.classList.remove('loaded');
+          els.parseStatus.textContent = `Error leyendo ${file.name}: ${err.message}`;
+          els.parseStatus.className = 'status-line error';
+        }
+      };
+      reader.readAsArrayBuffer(file);
+    }
+
+    function tryParseAll() {
+      if (!files.dep || !files.pag || !files.ven) {
+        const faltan = ['dep', 'pag', 'ven'].filter(k => !files[k]).length;
+        els.parseStatus.textContent = `Falta(n) ${faltan} archivo(s) por cargar.`;
+        els.parseStatus.className = 'status-line';
+        return;
+      }
+      try {
+        parsed.dep = T.parseDepositos(files.dep);
+        parsed.pag = T.parsePagos(files.pag);
+        parsed.ven = T.parseMostrador(files.ven);
+        els.parseStatus.textContent =
+          `${parsed.dep.deposits.length} depósitos · ${parsed.pag.pagos.length} renglones de pagos aplicados · ${parsed.ven.ventas.length} facturas de mostrador.`;
+        els.parseStatus.className = 'status-line ok';
+        els.step2.classList.remove('disabled');
+        els.step3.classList.remove('disabled');
+        els.step4.classList.remove('disabled');
+        if (!els.titulo.value) {
+          const d = parsed.dep.deposits[0] && parsed.dep.deposits[0].fecha;
+          if (d) els.titulo.value = `COBRANZA DE ${T.MESES[d.getUTCMonth()]} ${d.getUTCFullYear()}`;
+        }
+        recompute();
+      } catch (err) {
+        console.error(err);
+        els.parseStatus.textContent = 'Error: ' + err.message;
+        els.parseStatus.className = 'status-line error';
+      }
+    }
+
+    /* ---------- recálculo del cruce ---------- */
+    function recompute() {
+      if (!parsed.dep) return;
+      const bank = els.bankAcct.value.trim();
+      const tol = parseFloat(els.tolerancia.value) || 3;
+      const groups = T.groupPagos(parsed.pag.pagos, bank, els.chkRemisiones.checked);
+      els.bankHint.textContent = `${groups.length} pago(s) de esta cuenta · hoja se llamará "${bank.slice(-3) || '?'}"`;
+      const out = T.matchDeposits(parsed.dep.deposits, groups, parsed.ven.ventas, { tolerancia: tol });
+      results = out.results;
+      const prev = selected;
+      selected = new Set();
+      results.forEach(r => {
+        const k = r.dep.srcRow;
+        if (!prev.size || prev.has(k)) selected.add(k);
+      });
+      renderSummary();
+      renderTable();
+    }
+
+    ['bankAcct', 'tolerancia'].forEach(id => $(id).addEventListener('input', debounce(recompute, 350)));
+    els.chkRemisiones.addEventListener('change', recompute);
+    function debounce(fn, ms) { let t; return () => { clearTimeout(t); t = setTimeout(fn, ms); }; }
+
+    function renderSummary() {
+      const pa = results.filter(r => r.tipo === 'PA').length;
+      const vm = results.filter(r => r.tipo === 'VM').length;
+      const na = results.filter(r => r.tipo === 'NA').length;
+      els.summaryGrid.innerHTML = `
+        <div class="metric"><div class="n">${results.length}</div><div class="l">Depósitos</div></div>
+        <div class="metric"><div class="n ok">${pa}</div><div class="l">En pagos aplicados</div></div>
+        <div class="metric"><div class="n ok">${vm}</div><div class="l">En mostrador</div></div>
+        <div class="metric"><div class="n warn">${na}</div><div class="l">Sin encontrar (???)</div></div>`;
+    }
+
+    function parseDMY(s) {
+      const m = String(s || '').trim().match(/^(\d{1,2})\/(\d{1,2})\/(\d{4})$/);
+      return m ? new Date(Date.UTC(+m[3], +m[2] - 1, +m[1])) : null;
+    }
+
+    function visibleResults() {
+      const q = els.searchBox.value.trim().toUpperCase();
+      const d1 = parseDMY(els.fDesde.value), d2 = parseDMY(els.fHasta.value);
+      return results.filter(r => {
+        if (d1 && r.dep.fecha < d1) return false;
+        if (d2 && r.dep.fecha > d2) return false;
+        if (q) {
+          const hay = (r.dep.concepto + ' ' + r.dep.monto).toUpperCase();
+          if (hay.indexOf(q) < 0) return false;
+        }
+        return true;
+      });
+    }
+
+    function renderTable() {
+      const list = visibleResults();
+      els.depBody.innerHTML = list.map(r => {
+        const d = r.dep;
+        let badge, cliente, facturas;
+        if (r.tipo === 'PA') {
+          badge = '<span class="badge pa">Pagos aplicados</span>';
+          cliente = esc(r.clienteNombre) + (r.clienteCuenta
+            ? ` <span class="mono" style="color:var(--text-faint)">${esc(r.clienteCuenta)}</span>`
+            : ' <span class="badge na">sin cuenta</span>');
+          facturas = r.grupo.facturas.map(f => esc(f.nofact)).join(', ');
+        } else if (r.tipo === 'VM') {
+          badge = '<span class="badge vm">Mostrador</span>';
+          cliente = 'VENTAS DE MOSTRADOR';
+          facturas = esc(r.venta.nofact);
+        } else {
+          badge = '<span class="badge na">???</span>';
+          cliente = '<span style="color:var(--text-faint)">—</span>';
+          facturas = '<span style="color:var(--text-faint)">—</span>';
+        }
+        return `<tr>
+          <td><input type="checkbox" data-row="${d.srcRow}" ${selected.has(d.srcRow) ? 'checked' : ''}></td>
+          <td class="mono">${T.fmtDay(d.fecha)}</td>
+          <td>${esc(d.concepto) || '<span style="color:var(--text-faint)">(sin concepto)</span>'}</td>
+          <td><span class="amt">$${money(d.monto)}</span></td>
+          <td>${badge}</td>
+          <td>${cliente}</td>
+          <td class="mono">${facturas}</td>
+        </tr>`;
+      }).join('') || `<tr><td colspan="7" class="status-line" style="padding:14px;">Sin resultados con ese filtro.</td></tr>`;
+
+      els.depBody.querySelectorAll('input[type=checkbox]').forEach(cb => {
+        cb.addEventListener('change', () => {
+          const k = Number(cb.dataset.row);
+          if (cb.checked) selected.add(k); else selected.delete(k);
+          updateCount();
+        });
+      });
+      updateCount();
+    }
+
+    function updateCount() {
+      els.selCount.textContent = `${selected.size} de ${results.length} seleccionados`;
+    }
+
+    [els.searchBox, els.fDesde, els.fHasta].forEach(el => el.addEventListener('input', renderTable));
+    els.btnAll.addEventListener('click', () => {
+      visibleResults().forEach(r => selected.add(r.dep.srcRow)); renderTable();
+    });
+    els.btnNone.addEventListener('click', () => {
+      visibleResults().forEach(r => selected.delete(r.dep.srcRow)); renderTable();
+    });
+    els.btnOnlyMatched.addEventListener('click', () => {
+      selected.clear();
+      results.filter(r => r.tipo !== 'NA').forEach(r => selected.add(r.dep.srcRow));
+      renderTable();
+    });
+
+    /* ---------- generar ---------- */
+    els.btnGenerate.addEventListener('click', async () => {
+      if (!selected.size) { alert('Selecciona al menos un depósito.'); return; }
+      els.btnGenerate.disabled = true;
+      els.genStatus.className = 'status-line';
+      els.genStatus.innerHTML = '<span class="spinner"></span>Generando archivo…';
+      try {
+        const chosen = results.filter(r => selected.has(r.dep.srcRow));
+        const res = await T.generateOutput({
+          results: chosen,
+          dep: parsed.dep, pag: parsed.pag, ven: parsed.ven,
+          bank: els.bankAcct.value.trim(),
+          empresa: els.empresa.value,
+          titulo: els.titulo.value,
+          etiquetaBanco: els.etiquetaBanco.value
+        });
+        const url = URL.createObjectURL(res.blob);
+        const a = document.createElement('a');
+        a.href = url;
+        a.download = `Cobranza_${res.sheetName}_${new Date().toISOString().slice(0, 10)}.xlsx`;
+        document.body.appendChild(a); a.click();
+        URL.revokeObjectURL(url); document.body.removeChild(a);
+        const na = chosen.filter(r => r.tipo === 'NA').length;
+        els.genStatus.textContent = `Listo — ${chosen.length} depósito(s) en la hoja "${res.sheetName}"` +
+          (na ? ` · ${na} quedaron con "???".` : '.');
+        els.genStatus.className = 'status-line ok';
+      } catch (err) {
+        console.error(err);
+        els.genStatus.textContent = 'Error al generar: ' + err.message;
+        els.genStatus.className = 'status-line error';
+      } finally {
+        els.btnGenerate.disabled = false;
+      }
+    });
+  }
+})();
+
+</script>
+</body>
+</html>
